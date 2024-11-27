@@ -23,6 +23,8 @@ from vllm.worker.model_runner_base import (
     ModelRunnerBase, ModelRunnerInputBase,
     _add_attn_metadata_broadcastable_dict,
     _init_attn_metadata_from_tensor_dict)
+from vllm.model_executor.model_loader.neuron import get_neuron_model
+from transformers_neuronx.config import GenerationConfig
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
@@ -130,6 +132,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 "setting --max-model-len to a smaller value.",
                 self.model_config.max_model_len)
 
+
     def load_model(self) -> None:
         self.device = self.device_config.device
 
@@ -151,12 +154,32 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         model = model.eval()
         xm.wait_device_ops()
         model = ModelWrapper(model)
-        # HACK remove compile
+        self.model = model
+        # # HACK disable compile
         # self.model = torch.compile(model,
         #                            backend="openxla",
         #                            fullgraph=True,
         #                            dynamic=False)
-        self.model = model
+        # # HACK neuron model config
+        # # NEURON has an upper limit on the top_k
+        # _MAX_NEURON_SAMPLING_TOP_K = 256
+        # self.model_config.neuron_sampling_params = GenerationConfig(
+        #         max_length=self.scheduler_config.max_model_len,
+        #         do_sample=True,
+        #         per_batch_line=True,
+        #         top_k=[_MAX_NEURON_SAMPLING_TOP_K] \
+        #             * self.scheduler_config.max_num_seqs,
+        #         top_p=[1.0] * self.scheduler_config.max_num_seqs,
+        #         temperature=[1.0] * self.scheduler_config.max_num_seqs,
+        #         dynamic=True,
+        #         global_top_k=_MAX_NEURON_SAMPLING_TOP_K)
+        # print(f"model config {self.model_config}")
+        # # HACK remove compile
+        # self.model_config.dype = torch.float
+        # self.model = get_neuron_model(
+        #     self.model_config,
+        #     parallel_config=self.parallel_config,
+        #     scheduler_config=self.scheduler_config)
 
     def _dummy_run(
         self,
