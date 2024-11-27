@@ -26,6 +26,7 @@ from vllm.worker.model_runner_base import (
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
+import os
 
 logger = init_logger(__name__)
 
@@ -506,27 +507,28 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         for seq_group_metadata in seq_group_metadata_list:
             sampling_params = seq_group_metadata.sampling_params
             t.append(sampling_params.temperature)
-            if sampling_params.top_p != 1 and not _ENABLE_TOP_P:
-                raise NotImplementedError(
-                    "Top-p sampling is currently disabled for the TPU backend "
-                    "due to performance issues.")
+            #HACK: bypass implementation error
+            # if sampling_params.top_p != 1 and not _ENABLE_TOP_P:
+            #     raise NotImplementedError(
+            #         "Top-p sampling is currently disabled for the TPU backend "
+            #         "due to performance issues.")
             p.append(sampling_params.top_p)
-            if sampling_params.top_k != -1:
-                raise NotImplementedError(
-                    "Top-k sampling is currently disabled for the TPU backend "
-                    "due to performance issues.")
-            if sampling_params.n > _MAX_NUM_SAMPLES:
-                raise NotImplementedError(
-                    f"Best of > {_MAX_NUM_SAMPLES} is not supported by the TPU "
-                    "backend.")
+            # if sampling_params.top_k != -1:
+            #     raise NotImplementedError(
+            #         "Top-k sampling is currently disabled for the TPU backend "
+            #         "due to performance issues.")
+            # if sampling_params.n > _MAX_NUM_SAMPLES:
+            #     raise NotImplementedError(
+            #         f"Best of > {_MAX_NUM_SAMPLES} is not supported by the TPU "
+            #         "backend.")
             n.append(sampling_params.n)
-            if sampling_params.logprobs is not None:
-                raise NotImplementedError(
-                    "logprobs is not currently supported by the TPU backend.")
-            if sampling_params.prompt_logprobs is not None:
-                raise NotImplementedError(
-                    "prompt_logprobs is not currently supported by the TPU "
-                    "backend.")
+            # if sampling_params.logprobs is not None:
+            #     raise NotImplementedError(
+            #         "logprobs is not currently supported by the TPU backend.")
+            # if sampling_params.prompt_logprobs is not None:
+            #     raise NotImplementedError(
+            #         "prompt_logprobs is not currently supported by the TPU "
+            #         "backend.")
 
             # Repeat the sampling params if the seq group has multiple seqs.
             num_seqs = len(seq_group_metadata.seq_data)
@@ -585,6 +587,42 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
     ) -> List[SamplerOutput]:
+        #HACK: add data pattern  for neuron device
+        if os.getenv('PJRT_DEVICE') == 'NEURON':
+            if num_steps > 1:
+                raise ValueError(
+                    "NeuronModelRunner does not support multi-step execution.")
+
+            attn_metadata = model_input.attn_metadata
+            attn_metadata.num_prefills = 1
+            token_ids = model_input.token_ids.to(self.device)
+            position_ids = model_input.position_ids.to(self.device)
+            input_lens = model_input.input_lens.to(self.device)
+            t = model_input.t.to(self.device)
+            p = model_input.p.to(self.device)
+            hidden_states = self.model(token_ids,
+                                            position_ids,
+                                            attn_metadata,
+                                            input_lens,
+                                            t,
+                                            p,
+                                            model_input.num_samples,
+                                            kv_caches)
+
+            # # Compute the logits only if the on-device sampling is turned off as
+            # # on-device sampling outputs the token ids.
+            # if self._on_device_sampling_disabled:
+            #     logits = self.model.compute_logits(hidden_states,
+            #                                     model_input.sampling_metadata)
+            # else:
+            logits = hidden_states
+
+            # Sample the next token.
+            output = self.model.sample(
+                logits=logits,
+                sampling_metadata=model_input.sampling_metadata,
+            )
+            return [output]
         assert intermediate_tensors is None
         if not model_input.is_first_multi_step:
             if not model_input.is_last_step:
@@ -777,7 +815,12 @@ class ModelWrapper(nn.Module):
             kv_caches: The key and value caches. They can be None during the
                 memory profiling at initialization.
         """
-        batch_size, seq_len = token_ids.shape
+        #HACK: set batch_size = 1
+        if os.getenv('PJRT_DEVICE') == 'NEURON':
+            seq_len = token_ids.shape[0]
+            batch_size = 1
+        else:
+            batch_size, seq_len = token_ids.shape
         # Calculate the positions to sample from.
         start_indicies = torch.arange(
             batch_size, dtype=torch.int32, device=input_lens.device) * seq_len
@@ -791,27 +834,28 @@ class ModelWrapper(nn.Module):
             categorized_sample_indices={},
             num_prompts=attn_metadata.num_prefills,
         )
-
-        # Skip this in memory profiling at initialization.
-        if kv_caches[0][0].numel() > 0:
-            # index_copy_(slot_mapping) only works when the inserted dimension
-            # is 0. However, the KV cache in the Pallas backend has the shape
-            # [num_kv_heads, num_blocks, block_size, head_size]. To make it
-            # work, we need to flatten the first three dimensions and modify
-            # the slot_mapping accordingly.
-            num_kv_heads, num_blocks, block_size, _ = kv_caches[0][0].shape
-            slot_mapping = attn_metadata.slot_mapping
-            slot_mapping = slot_mapping.flatten()
-            head_indicies = torch.arange(0,
-                                         num_kv_heads,
-                                         device=slot_mapping.device,
-                                         dtype=slot_mapping.dtype)
-            head_indicies *= block_size * num_blocks
-            slot_mapping = slot_mapping.repeat_interleave(num_kv_heads).view(
-                -1, num_kv_heads)
-            slot_mapping = slot_mapping + head_indicies.view(1, -1)
-            slot_mapping = slot_mapping.flatten()
-            attn_metadata.slot_mapping = slot_mapping
+        #HACK: bypass kv_caches[0][0] check
+        if os.getenv('PJRT_DEVICE') != 'NEURON':
+            # Skip this in memory profiling at initialization.
+            if kv_caches[0][0].numel() > 0:
+                # index_copy_(slot_mapping) only works when the inserted dimension
+                # is 0. However, the KV cache in the Pallas backend has the shape
+                # [num_kv_heads, num_blocks, block_size, head_size]. To make it
+                # work, we need to flatten the first three dimensions and modify
+                # the slot_mapping accordingly.
+                num_kv_heads, num_blocks, block_size, _ = kv_caches[0][0].shape
+                slot_mapping = attn_metadata.slot_mapping
+                slot_mapping = slot_mapping.flatten()
+                head_indicies = torch.arange(0,
+                                            num_kv_heads,
+                                            device=slot_mapping.device,
+                                            dtype=slot_mapping.dtype)
+                head_indicies *= block_size * num_blocks
+                slot_mapping = slot_mapping.repeat_interleave(num_kv_heads).view(
+                    -1, num_kv_heads)
+                slot_mapping = slot_mapping + head_indicies.view(1, -1)
+                slot_mapping = slot_mapping.flatten()
+                attn_metadata.slot_mapping = slot_mapping
 
         hidden_states = self.model(
             token_ids,
