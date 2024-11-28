@@ -155,11 +155,11 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         xm.wait_device_ops()
         model = ModelWrapper(model)
         self.model = model
-        # # HACK disable compile
-        # self.model = torch.compile(model,
-        #                            backend="openxla",
-        #                            fullgraph=True,
-        #                            dynamic=False)
+        # # # HACK disable compile
+        # # self.model = torch.compile(model,
+        # #                            backend="openxla",
+        # #                            fullgraph=True,
+        # #                            dynamic=False)
         # # HACK neuron model config
         # # NEURON has an upper limit on the top_k
         # _MAX_NEURON_SAMPLING_TOP_K = 256
