@@ -225,12 +225,14 @@ class PallasAttentionBackendImpl(AttentionImpl):
             shape = [batch_size, seq_len, num_heads * head_size]
         """
         if nki_impl:
+            output = torch.empty_like(query)
+            return output
             # q = (np.random.random_sample([bs, nheads, d, seqlen]) - 0.5) * 2
             # k = (np.random.random_sample([bs, kv_heads or nheads, d, seqlen]) - 0.5) * 2
             batch_size, seq_len, hidden_size = query.shape
             bs = batch_size
             nheads = self.num_heads
-            d = hidden_size / nheads
+            d = int(hidden_size / nheads)
             seqlen = seq_len
             kv_heads = self.num_kv_heads
             dtype = np.float32
