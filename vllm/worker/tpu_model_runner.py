@@ -24,7 +24,6 @@ from vllm.worker.model_runner_base import (
     _add_attn_metadata_broadcastable_dict,
     _init_attn_metadata_from_tensor_dict)
 from vllm.model_executor.model_loader.neuron import get_neuron_model
-from transformers_neuronx.config import GenerationConfig
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
@@ -140,7 +139,10 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         model = get_model(vllm_config=self.vllm_config)
         model = model.eval()
         model = ModelWrapper(model)
-        self.model = model
+        self.model = torch.compile(model,
+                                   backend="openxla",
+                                   fullgraph=True,
+                                   dynamic=False)
 
         # # NOTE(woosuk): While the executor assigns the TP ranks to the worker
         # # process, the ranks can be different from the ranks internally assigned

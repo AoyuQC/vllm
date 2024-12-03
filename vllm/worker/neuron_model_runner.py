@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
-from transformers_neuronx.config import GenerationConfig
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
@@ -91,16 +90,17 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
                 "parameters. To turn off the on-device sampling, please set "
                 "the environment variable NEURON_ON_DEVICE_SAMPLING_DISABLED=1."
             )
-            self.model_config.neuron_sampling_params = GenerationConfig(
-                max_length=self.scheduler_config.max_model_len,
-                do_sample=True,
-                per_batch_line=True,
-                top_k=[self._MAX_NEURON_SAMPLING_TOP_K] \
-                    * self.scheduler_config.max_num_seqs,
-                top_p=[1.0] * self.scheduler_config.max_num_seqs,
-                temperature=[1.0] * self.scheduler_config.max_num_seqs,
-                dynamic=True,
-                global_top_k=self._MAX_NEURON_SAMPLING_TOP_K)
+            # HACK n
+            # self.model_config.neuron_sampling_params = GenerationConfig(
+            #     max_length=self.scheduler_config.max_model_len,
+            #     do_sample=True,
+            #     per_batch_line=True,
+            #     top_k=[self._MAX_NEURON_SAMPLING_TOP_K] \
+            #         * self.scheduler_config.max_num_seqs,
+            #     top_p=[1.0] * self.scheduler_config.max_num_seqs,
+            #     temperature=[1.0] * self.scheduler_config.max_num_seqs,
+            #     dynamic=True,
+            #     global_top_k=self._MAX_NEURON_SAMPLING_TOP_K)
 
     def load_model(self) -> None:
         if find_spec("transformers_neuronx") is not None:

@@ -50,19 +50,19 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         self.model_runner: TPUModelRunner = TPUModelRunner(
             vllm_config=vllm_config, is_driver_worker=is_driver_worker)
 
-        # HACK:  neuron backend
-        os.environ['PJRT_DEVICE'] = 'NEURON'
-        if os.getenv('PJRT_DEVICE') == 'NEURON':
-            from vllm.worker.neuron_worker import NeuronWorker
-            distributed_init_method = get_distributed_init_method(
-                get_ip(), get_open_port())
-            self.neuron_driver_worker = NeuronWorker(
-                vllm_config=self.vllm_config,
-                local_rank=0,
-                rank=0,
-                distributed_init_method=distributed_init_method)
-            self.neuron_driver_worker.init_device()
-            self.neuron_driver_worker.load_model()
+        # # HACK:  neuron backend
+        # os.environ['PJRT_DEVICE'] = 'NEURON'
+        # if os.getenv('PJRT_DEVICE') == 'NEURON':
+        #     from vllm.worker.neuron_worker import NeuronWorker
+        #     distributed_init_method = get_distributed_init_method(
+        #         get_ip(), get_open_port())
+        #     self.neuron_driver_worker = NeuronWorker(
+        #         vllm_config=self.vllm_config,
+        #         local_rank=0,
+        #         rank=0,
+        #         distributed_init_method=distributed_init_method)
+        #     self.neuron_driver_worker.init_device()
+        #     self.neuron_driver_worker.load_model()
     def init_device(self) -> None:
         os.environ["PJRT_DEVICE"] = "TPU"
         # HACK:  neuron backend
@@ -114,7 +114,8 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
     def determine_num_available_blocks(self) -> Tuple[int, int]:
         # HACK
         if os.getenv('PJRT_DEVICE') == 'NEURON':
-            return self.neuron_driver_worker.determine_num_available_blocks()
+            return 600, 0
+            # return self.neuron_driver_worker.determine_num_available_blocks()
         num_layers = self.model_config.get_num_layers(self.parallel_config)
         head_size = self.model_config.get_head_size()
         num_kv_heads = self.model_config.get_num_kv_heads(self.parallel_config)
@@ -164,9 +165,9 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         num_gpu_blocks: int,
         num_cpu_blocks: int,
     ) -> None:
-        # HACK
-        if os.getenv('PJRT_DEVICE') == 'NEURON':
-                return self.neuron_driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
+        # # HACK
+        # if os.getenv('PJRT_DEVICE') == 'NEURON':
+        #         return self.neuron_driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks
         self.block_size = self.cache_config.block_size

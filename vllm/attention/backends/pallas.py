@@ -66,19 +66,18 @@ def cpu_attention_forward(q, k, v, use_causal_mask=True, mixed_precision=True):
 
     return out_golden, cached_negative_max, cached_sum_reciprocal
 
-
 class PallasAttentionBackend(AttentionBackend):
 
     @staticmethod
     def get_name() -> str:
         return "PALLAS"
-    
+
     @staticmethod
     def get_impl_cls() -> Type["PallasAttentionBackendImpl"]:
         return PallasAttentionBackendImpl
 
     @staticmethod
-    def make_metadata(*args, **kwargs) -> "PallasMetadata":
+    def get_metadata_cls() -> Type["PallasMetadata"]:
         return PallasMetadata
 
     @staticmethod
@@ -92,23 +91,28 @@ class PallasAttentionBackend(AttentionBackend):
         num_kv_heads: int,
         head_size: int,
     ) -> Tuple[int, ...]:
-        raise NotImplementedError
+        return (num_kv_heads, num_blocks, block_size, head_size)
 
     @staticmethod
     def swap_blocks(
         src_kv_cache: torch.Tensor,
         dst_kv_cache: torch.Tensor,
-        src_to_dst: Dict[int, int],
+        src_to_dst: torch.Tensor,
     ) -> None:
-        raise NotImplementedError
+        raise RuntimeError("swap_blocks is not used for the TPU backend.")
 
+    @torch.compile(backend="openxla")
     @staticmethod
     def copy_blocks(
-        kv_caches: List[torch.Tensor],
-        src_to_dists: Dict[int, List[int]],
+        kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
+        src_to_dists: Tuple[torch.Tensor, torch.Tensor],
     ) -> None:
-        raise NotImplementedError
-
+        src_indices, dst_indices = src_to_dists
+        for k_cache, v_cache in kv_caches:
+            torch.ops.xla.dynamo_set_buffer_donor_(k_cache, True)
+            k_cache[:, dst_indices] = k_cache[:, src_indices]
+            torch.ops.xla.dynamo_set_buffer_donor_(v_cache, True)
+            v_cache[:, dst_indices] = v_cache[:, src_indices]
 
 @dataclass
 class PallasMetadata(AttentionMetadata):
@@ -117,6 +121,7 @@ class PallasMetadata(AttentionMetadata):
     # or all decoding.
     block_tables: Optional[torch.Tensor] = None
     context_lens: Optional[torch.Tensor] = None
+    effective_query_lens: Optional[torch.Tensor] = None
 
     @property
     def prefill_metadata(self) -> Optional["PallasMetadata"]:
@@ -124,8 +129,6 @@ class PallasMetadata(AttentionMetadata):
             return None
 
         assert self.num_decode_tokens == 0
-        assert self.block_tables is None
-        assert self.context_lens is None
         return self
 
     @property
@@ -138,6 +141,7 @@ class PallasMetadata(AttentionMetadata):
         assert self.block_tables is not None
         assert self.context_lens is not None
         return self
+
 
 
 class PallasAttentionBackendImpl(AttentionImpl):

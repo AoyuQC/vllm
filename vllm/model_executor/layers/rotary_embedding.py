@@ -63,8 +63,6 @@ def _apply_rotary_emb(
     if is_neox_style:
         # HACK
         # x1, x2 = torch.chunk(x, 2, dim=-1)
-        print(f"device is {xm.xla_device()}")
-        print(x.dtype)
         # x = x.to(xm.xla_device())
         # x = x.float()
         # print("!!!")
