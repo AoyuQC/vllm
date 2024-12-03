@@ -27,6 +27,8 @@ import torch
 import torch.nn as nn
 
 from vllm.model_executor.custom_op import CustomOp
+# HACK
+import torch_xla.core.xla_model as xm
 
 
 def _rotate_neox(x: torch.Tensor) -> torch.Tensor:
@@ -59,7 +61,15 @@ def _apply_rotary_emb(
     cos = cos.unsqueeze(-2).to(x.dtype)
     sin = sin.unsqueeze(-2).to(x.dtype)
     if is_neox_style:
-        x1, x2 = torch.chunk(x, 2, dim=-1)
+        # HACK
+        # x1, x2 = torch.chunk(x, 2, dim=-1)
+        print(f"device is {xm.xla_device()}")
+        print(x.dtype)
+        # x = x.to(xm.xla_device())
+        # x = x.float()
+        # print("!!!")
+        x1 = x[..., ::2]
+        x2 = x[..., 1::2]
     else:
         x1 = x[..., ::2]
         x2 = x[..., 1::2]

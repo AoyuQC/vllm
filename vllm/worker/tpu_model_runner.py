@@ -134,27 +134,33 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
 
 
     def load_model(self) -> None:
+        #HACK set xla device
+        # self.device = xm.xla_device()
         self.device = self.device_config.device
-
-        # NOTE(woosuk): While the executor assigns the TP ranks to the worker
-        # process, the ranks can be different from the ranks internally assigned
-        # by the xm runtime. Therefore, there is a mismatch in the rank
-        # assignment between the gloo (cpu) runtime and the xm (tpu) runtime.
-        # This is not a problem in linear layers because all-reduce is
-        # rank-agnostic. However, it matters for all-gather as the ranks
-        # determine the order of concatenating the output tensors.
-        # As a workaround, we use the xm's rank assignment only when loading
-        # the embedding weights.
-        xm_tp_rank = xr.global_ordinal()
-        with patch(
-                "vllm.model_executor.layers.vocab_parallel_embedding."
-                "get_tensor_model_parallel_rank",
-                return_value=xm_tp_rank):
-            model = get_model(vllm_config=self.vllm_config)
+        model = get_model(vllm_config=self.vllm_config)
         model = model.eval()
-        xm.wait_device_ops()
         model = ModelWrapper(model)
         self.model = model
+
+        # # NOTE(woosuk): While the executor assigns the TP ranks to the worker
+        # # process, the ranks can be different from the ranks internally assigned
+        # # by the xm runtime. Therefore, there is a mismatch in the rank
+        # # assignment between the gloo (cpu) runtime and the xm (tpu) runtime.
+        # # This is not a problem in linear layers because all-reduce is
+        # # rank-agnostic. However, it matters for all-gather as the ranks
+        # # determine the order of concatenating the output tensors.
+        # # As a workaround, we use the xm's rank assignment only when loading
+        # # the embedding weights.
+        # xm_tp_rank = xr.global_ordinal()
+        # with patch(
+        #         "vllm.model_executor.layers.vocab_parallel_embedding."
+        #         "get_tensor_model_parallel_rank",
+        #         return_value=xm_tp_rank):
+        #     model = get_model(vllm_config=self.vllm_config)
+        # model = model.eval()
+        # xm.wait_device_ops()
+        # model = ModelWrapper(model)
+        # self.model = model
         # # # HACK disable compile
         # # self.model = torch.compile(model,
         # #                            backend="openxla",
