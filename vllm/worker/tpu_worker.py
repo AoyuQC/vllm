@@ -17,9 +17,6 @@ from vllm.worker.tpu_model_runner import ExecutionMode, TPUModelRunner
 from vllm.worker.worker_base import (LocalOrDistributedWorkerBase,
                                      LoraNotSupportedWorkerBase, WorkerBase,
                                      WorkerInput)
-# HACK
-from vllm.utils import (get_distributed_init_method, get_ip, get_open_port,
-                        make_async)
 logger = init_logger(__name__)
 
 
@@ -50,7 +47,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         self.model_runner: TPUModelRunner = TPUModelRunner(
             vllm_config=vllm_config, is_driver_worker=is_driver_worker)
 
-        # # HACK:  neuron backend
+        # # HACK AOYU:  neuron backend
         # os.environ['PJRT_DEVICE'] = 'NEURON'
         # if os.getenv('PJRT_DEVICE') == 'NEURON':
         #     from vllm.worker.neuron_worker import NeuronWorker
@@ -65,7 +62,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         #     self.neuron_driver_worker.load_model()
     def init_device(self) -> None:
         os.environ["PJRT_DEVICE"] = "TPU"
-        # HACK:  neuron backend
+        # HACK AOYU:  neuron backend
         os.environ['PJRT_DEVICE'] = 'NEURON'
         torch.set_grad_enabled(False)
         torch.set_default_dtype(self.model_config.dtype)
@@ -112,7 +109,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         self.model_runner.load_model()
 
     def determine_num_available_blocks(self) -> Tuple[int, int]:
-        # HACK
+        # HACK AOYU
         if os.getenv('PJRT_DEVICE') == 'NEURON':
             return 600, 0
             # return self.neuron_driver_worker.determine_num_available_blocks()
@@ -165,7 +162,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
         num_gpu_blocks: int,
         num_cpu_blocks: int,
     ) -> None:
-        # # HACK
+        # # HACK AOYU
         # if os.getenv('PJRT_DEVICE') == 'NEURON':
         #         return self.neuron_driver_worker.initialize_cache(num_gpu_blocks, num_cpu_blocks)
         self.cache_config.num_gpu_blocks = num_gpu_blocks
@@ -194,7 +191,8 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
                                       device="cpu")
             cpu_v_cache = torch.zeros_like(cpu_k_cache)
             self.cpu_cache.append((cpu_k_cache, cpu_v_cache))
-        self._warmup_model()
+        # HACK AOYU disable warmpup model
+        # self._warmup_model()
 
     def _warmup_model(self) -> None:
         # FIXME(woosuk): Here we are abusing `enforce_eager` which is defined
@@ -228,7 +226,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
     def kv_cache(self) -> Optional[List[List[torch.Tensor]]]:
         # NOTE(woosuk): This assumes virtual_engine == 0, i.e., no pipeline
         # parallelism.
-        # HACK
+        # HACK AOYU
         if os.getenv('PJRT_DEVICE') == 'NEURON':
             return None
         return [self.tpu_cache]

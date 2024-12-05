@@ -133,16 +133,21 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
 
 
     def load_model(self) -> None:
-        #HACK set xla device
+        # HACK AOYU set xla device
         # self.device = xm.xla_device()
         self.device = self.device_config.device
         model = get_model(vllm_config=self.vllm_config)
         model = model.eval()
         model = ModelWrapper(model)
+        # HACK change dynamic from False to True
         self.model = torch.compile(model,
                                    backend="openxla",
                                    fullgraph=True,
-                                   dynamic=False)
+                                   dynamic=True)
+        # self.model = torch.compile(model,
+        #                            backend="openxla",
+        #                            fullgraph=True,
+        #                            dynamic=False)
 
         # # NOTE(woosuk): While the executor assigns the TP ranks to the worker
         # # process, the ranks can be different from the ranks internally assigned
@@ -163,12 +168,12 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         # xm.wait_device_ops()
         # model = ModelWrapper(model)
         # self.model = model
-        # # # HACK disable compile
+        # # # HACK AOYU disable compile
         # # self.model = torch.compile(model,
         # #                            backend="openxla",
         # #                            fullgraph=True,
         # #                            dynamic=False)
-        # # HACK neuron model config
+        # # HACK AOYU neuron model config
         # # NEURON has an upper limit on the top_k
         # _MAX_NEURON_SAMPLING_TOP_K = 256
         # self.model_config.neuron_sampling_params = GenerationConfig(
@@ -182,7 +187,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         #         dynamic=True,
         #         global_top_k=_MAX_NEURON_SAMPLING_TOP_K)
         # print(f"model config {self.model_config}")
-        # # HACK remove compile
+        # # HACK AOYU remove compile
         # self.model_config.dype = torch.float
         # self.model = get_neuron_model(
         #     self.model_config,
@@ -540,7 +545,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         for seq_group_metadata in seq_group_metadata_list:
             sampling_params = seq_group_metadata.sampling_params
             t.append(sampling_params.temperature)
-            #HACK: bypass implementation error
+            # HACK AOYU: bypass implementation error
             # if sampling_params.top_p != 1 and not _ENABLE_TOP_P:
             #     raise NotImplementedError(
             #         "Top-p sampling is currently disabled for the TPU backend "
@@ -620,7 +625,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
     ) -> List[SamplerOutput]:
-        #HACK: add data pattern  for neuron device
+        # HACK AOYU: add data pattern  for neuron device
         if os.getenv('PJRT_DEVICE') == 'NEURON':
             if num_steps > 1:
                 raise ValueError(
@@ -848,12 +853,12 @@ class ModelWrapper(nn.Module):
             kv_caches: The key and value caches. They can be None during the
                 memory profiling at initialization.
         """
-        #HACK: set batch_size = 1
+        # HACK AOYU: set batch_size = 1
         if os.getenv('PJRT_DEVICE') == 'NEURON':
             seq_len = token_ids.shape[0]
             batch_size = 1
-        else:
-            batch_size, seq_len = token_ids.shape
+        # # else:
+        # batch_size, seq_len = token_ids.shape
         # Calculate the positions to sample from.
         start_indicies = torch.arange(
             batch_size, dtype=torch.int32, device=input_lens.device) * seq_len
@@ -867,7 +872,7 @@ class ModelWrapper(nn.Module):
             categorized_sample_indices={},
             num_prompts=attn_metadata.num_prefills,
         )
-        #HACK: bypass kv_caches[0][0] check
+        # HACK AOYU: bypass kv_caches[0][0] check
         if os.getenv('PJRT_DEVICE') != 'NEURON':
             # Skip this in memory profiling at initialization.
             if kv_caches[0][0].numel() > 0:
@@ -897,10 +902,14 @@ class ModelWrapper(nn.Module):
             attn_metadata,
         )
         hidden_states = hidden_states.flatten(0, 1)
+        # HACK AOYU hidden states
+        hidden_states = hidden_states.view(-1,512)
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
+        # HACK AOYU logits size
+        logits = logits.view(batch_size, -1)
 
         # Argmax sampling.
-        # HACK
+        # HACK AOYU
         _, argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
         # argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
         argmax_token_ids = argmax_token_ids.repeat(1, num_samples)
@@ -919,8 +928,10 @@ class ModelWrapper(nn.Module):
         if num_samples == 1:
             argmax_token_ids = argmax_token_ids.squeeze(dim=-1)
             sampled_token_ids = sampled_token_ids.squeeze(dim=-1)
-        next_token_ids = torch.where(t != 0, sampled_token_ids,
-                                     argmax_token_ids)
+        # next_token_ids = torch.where(t != 0, sampled_token_ids,
+        #                              argmax_token_ids)
+        # HACK AOYU suppose temperature != 0
+        next_token_ids = sampled_token_ids
         return next_token_ids
 
 
