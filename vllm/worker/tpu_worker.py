@@ -192,7 +192,7 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
             cpu_v_cache = torch.zeros_like(cpu_k_cache)
             self.cpu_cache.append((cpu_k_cache, cpu_v_cache))
         # HACK AOYU disable warmpup model
-        # self._warmup_model()
+        self._warmup_model()
 
     def _warmup_model(self) -> None:
         # FIXME(woosuk): Here we are abusing `enforce_eager` which is defined

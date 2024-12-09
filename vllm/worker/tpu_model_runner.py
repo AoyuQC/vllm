@@ -28,6 +28,8 @@ from vllm.model_executor.model_loader.neuron import get_neuron_model
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 import os
+# HACK AOYU add device type at forward function
+import torch_xla.core.xla_model as xm
 
 logger = init_logger(__name__)
 
@@ -139,15 +141,15 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         model = get_model(vllm_config=self.vllm_config)
         model = model.eval()
         model = ModelWrapper(model)
-        # HACK change dynamic from False to True
-        self.model = torch.compile(model,
-                                   backend="openxla",
-                                   fullgraph=True,
-                                   dynamic=True)
+        # # HACK change dynamic from False to True
         # self.model = torch.compile(model,
         #                            backend="openxla",
         #                            fullgraph=True,
-        #                            dynamic=False)
+        #                            dynamic=True)
+        self.model = torch.compile(model,
+                                   backend="openxla",
+                                   fullgraph=True,
+                                   dynamic=False)
 
         # # NOTE(woosuk): While the executor assigns the TP ranks to the worker
         # # process, the ranks can be different from the ranks internally assigned
@@ -625,42 +627,50 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         intermediate_tensors: Optional[IntermediateTensors] = None,
         num_steps: int = 1,
     ) -> List[SamplerOutput]:
-        # HACK AOYU: add data pattern  for neuron device
-        if os.getenv('PJRT_DEVICE') == 'NEURON':
-            if num_steps > 1:
-                raise ValueError(
-                    "NeuronModelRunner does not support multi-step execution.")
+        # # HACK AOYU: add data pattern  for neuron device
+        # if os.getenv('PJRT_DEVICE') == 'NEURON':
+        #     if num_steps > 1:
+        #         raise ValueError(
+        #             "NeuronModelRunner does not support multi-step execution.")
 
-            attn_metadata = model_input.attn_metadata
-            attn_metadata.num_prefills = 1
-            token_ids = model_input.token_ids.to(self.device)
-            position_ids = model_input.position_ids.to(self.device)
-            input_lens = model_input.input_lens.to(self.device)
-            t = model_input.t.to(self.device)
-            p = model_input.p.to(self.device)
-            hidden_states = self.model(token_ids,
-                                            position_ids,
-                                            attn_metadata,
-                                            input_lens,
-                                            t,
-                                            p,
-                                            model_input.num_samples,
-                                            kv_caches)
-
-            # # Compute the logits only if the on-device sampling is turned off as
-            # # on-device sampling outputs the token ids.
-            # if self._on_device_sampling_disabled:
-            #     logits = self.model.compute_logits(hidden_states,
-            #                                     model_input.sampling_metadata)
-            # else:
-            logits = hidden_states
-
-            # Sample the next token.
-            output = self.model.sample(
-                logits=logits,
-                sampling_metadata=model_input.sampling_metadata,
-            )
-            return [output]
+        #     attn_metadata = model_input.attn_metadata
+        #     attn_metadata.num_prefills = 1
+        #     token_ids = model_input.token_ids.to(xm.xla_device())
+        #     position_ids = model_input.position_ids.to(xm.xla_device())
+        #     input_lens = model_input.input_lens.to(xm.xla_device())
+        #     # t = model_input.t.to(xm.xla_device())
+        #     t = torch.tensor([0.7]).to(xm.xla_device())
+        #     p = model_input.p.to(xm.xla_device())
+        #     t = t.float()
+        #     print(f"!100000000")
+        #     print(f"test token_ids {token_ids}")
+        #     print(f"test position_ids {position_ids}")
+        #     print(f"test input_lens {input_lens}")
+        #     print(f"test t {t}")
+        #     print(f"test p {p}")
+        #     print(f"num samples {model_input.num_samples}")
+        #     fake_logits = torch.randn((3,3200)).to(torch.float16).to(xm.xla_device())
+        #     # hidden_states = self.model(token_ids,
+        #     #                                 position_ids,
+        #     #                                 attn_metadata,
+        #     #                                 input_lens,
+        #     #                                 t,
+        #     #                                 p,
+        #     #                                 model_input.num_samples,
+        #     #                                 kv_caches,
+        #     #                                 fake_logits)
+        #     output_token_ids = self.model(token_ids, position_ids,
+        #                         attn_metadata, input_lens, t, p,
+        #                         model_input.num_samples,
+        #                         kv_caches, fake_logits)
+        #     # Retrieve the outputs to CPU.
+        #     next_token_ids = output_token_ids
+        #     next_token_ids = next_token_ids.cpu().tolist()
+        #     sampler_output = _make_decode_output(next_token_ids,
+        #                                          model_input.seq_groups)
+        #     return [sampler_output]
+        # HACK AOYU add fake logits
+        fake_logits = torch.randn((3,3200)).to(torch.float16).to(xm.xla_device())
         assert intermediate_tensors is None
         if not model_input.is_first_multi_step:
             if not model_input.is_last_step:
@@ -740,7 +750,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 output_token_ids = self.model(token_ids, position_ids,
                                               attn_metadata, input_lens, t, p,
                                               model_input.num_samples,
-                                              kv_caches)
+                                              kv_caches, fake_logits)
                 next_token_ids.append(output_token_ids[0])
                 start_idx = end_idx
 
@@ -788,7 +798,7 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 output_token_ids = self.model(token_ids, position_ids,
                                               attn_metadata, input_lens, t, p,
                                               model_input.num_samples,
-                                              kv_caches)
+                                              kv_caches, fake_logits)
                 self.cached_step_outputs.append(output_token_ids)
 
                 if i < num_steps - 1:
@@ -839,6 +849,7 @@ class ModelWrapper(nn.Module):
         p: torch.Tensor,
         num_samples: int,
         kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
+        fake_logits: torch.Tensor,
     ) -> torch.Tensor:
         """Executes the forward pass of the model and samples the next token.
 
@@ -853,47 +864,42 @@ class ModelWrapper(nn.Module):
             kv_caches: The key and value caches. They can be None during the
                 memory profiling at initialization.
         """
-        # HACK AOYU: set batch_size = 1
-        if os.getenv('PJRT_DEVICE') == 'NEURON':
-            seq_len = token_ids.shape[0]
-            batch_size = 1
-        # # else:
-        # batch_size, seq_len = token_ids.shape
+        batch_size, seq_len = token_ids.shape
         # Calculate the positions to sample from.
         start_indicies = torch.arange(
             batch_size, dtype=torch.int32, device=input_lens.device) * seq_len
         logits_indices = start_indicies + input_lens - 1
 
-        # FIXME(woosuk): This is a temporary hack to avoid using the existing
-        # sampler and sampling metadata.
-        sampling_metadata = SamplingMetadata(
-            seq_groups=[],
-            selected_token_indices=logits_indices,
-            categorized_sample_indices={},
-            num_prompts=attn_metadata.num_prefills,
-        )
+        # # FIXME(woosuk): This is a temporary hack to avoid using the existing
+        # # sampler and sampling metadata.
+        # sampling_metadata = SamplingMetadata(
+        #     seq_groups=[],
+        #     selected_token_indices=logits_indices,
+        #     categorized_sample_indices={},
+        #     num_prompts=attn_metadata.num_prefills,
+        # )
         # HACK AOYU: bypass kv_caches[0][0] check
-        if os.getenv('PJRT_DEVICE') != 'NEURON':
-            # Skip this in memory profiling at initialization.
-            if kv_caches[0][0].numel() > 0:
-                # index_copy_(slot_mapping) only works when the inserted dimension
-                # is 0. However, the KV cache in the Pallas backend has the shape
-                # [num_kv_heads, num_blocks, block_size, head_size]. To make it
-                # work, we need to flatten the first three dimensions and modify
-                # the slot_mapping accordingly.
-                num_kv_heads, num_blocks, block_size, _ = kv_caches[0][0].shape
-                slot_mapping = attn_metadata.slot_mapping
-                slot_mapping = slot_mapping.flatten()
-                head_indicies = torch.arange(0,
-                                            num_kv_heads,
-                                            device=slot_mapping.device,
-                                            dtype=slot_mapping.dtype)
-                head_indicies *= block_size * num_blocks
-                slot_mapping = slot_mapping.repeat_interleave(num_kv_heads).view(
-                    -1, num_kv_heads)
-                slot_mapping = slot_mapping + head_indicies.view(1, -1)
-                slot_mapping = slot_mapping.flatten()
-                attn_metadata.slot_mapping = slot_mapping
+        # if os.getenv('PJRT_DEVICE') != 'NEURON':
+        #     # Skip this in memory profiling at initialization.
+        #     if kv_caches[0][0].numel() > 0:
+        #         # index_copy_(slot_mapping) only works when the inserted dimension
+        #         # is 0. However, the KV cache in the Pallas backend has the shape
+        #         # [num_kv_heads, num_blocks, block_size, head_size]. To make it
+        #         # work, we need to flatten the first three dimensions and modify
+        #         # the slot_mapping accordingly.
+        #         num_kv_heads, num_blocks, block_size, _ = kv_caches[0][0].shape
+        #         slot_mapping = attn_metadata.slot_mapping
+        #         slot_mapping = slot_mapping.flatten()
+        #         head_indicies = torch.arange(0,
+        #                                     num_kv_heads,
+        #                                     device=slot_mapping.device,
+        #                                     dtype=slot_mapping.dtype)
+        #         head_indicies *= block_size * num_blocks
+        #         slot_mapping = slot_mapping.repeat_interleave(num_kv_heads).view(
+        #             -1, num_kv_heads)
+        #         slot_mapping = slot_mapping + head_indicies.view(1, -1)
+        #         slot_mapping = slot_mapping.flatten()
+        #         attn_metadata.slot_mapping = slot_mapping
 
         hidden_states = self.model(
             token_ids,
@@ -902,21 +908,29 @@ class ModelWrapper(nn.Module):
             attn_metadata,
         )
         hidden_states = hidden_states.flatten(0, 1)
-        # HACK AOYU hidden states
-        hidden_states = hidden_states.view(-1,512)
-        logits = self.model.compute_logits(hidden_states, sampling_metadata)
-        # HACK AOYU logits size
-        logits = logits.view(batch_size, -1)
+        # # HACK AOYU hidden states
+        # # hidden_states = hidden_states.view(-1,2048)
+        # hidden_states = hidden_states.view(-1,512)
+        # logits = self.model.compute_logits(hidden_states, sampling_metadata)
+        # HACK AOYU remove sampling meta data
+        logits = self.model.compute_logits(hidden_states, logits_indices)
+        # # HACK AOYU logits size
+        # logits = logits.view(batch_size, -1)
 
         # Argmax sampling.
         # HACK AOYU
-        _, argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
-        # argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
-        argmax_token_ids = argmax_token_ids.repeat(1, num_samples)
+        # _, argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
+        # # argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
+        # argmax_token_ids = argmax_token_ids.repeat(1, num_samples)
 
-        # Zero temperature means greedy decoding. Avoid division by zero.
-        nonzero_t = torch.where(t != 0, t, 1.0)
-        logits = logits / nonzero_t.unsqueeze(dim=1)
+        # # Zero temperature means greedy decoding. Avoid division by zero.
+        # nonzero_t = torch.where(t != 0, t, 1.0)
+        # logits = logits / nonzero_t.unsqueeze(dim=1)
+        # HACK AOYU, bypass temperature
+        # nonzero_t = t
+        # nonzero_t = nonzero_t.unsqueeze(dim=1)
+        # logits = logits / nonzero_t
+        logits = logits / t
         if _ENABLE_TOP_P:
             logits = _apply_top_p(logits, p.unsqueeze(dim=1))
 
@@ -925,9 +939,9 @@ class ModelWrapper(nn.Module):
         sampled_token_ids = torch.multinomial(probs,
                                               num_samples,
                                               replacement=True)
-        if num_samples == 1:
-            argmax_token_ids = argmax_token_ids.squeeze(dim=-1)
-            sampled_token_ids = sampled_token_ids.squeeze(dim=-1)
+        # if num_samples == 1:
+        #     argmax_token_ids = argmax_token_ids.squeeze(dim=-1)
+        #     sampled_token_ids = sampled_token_ids.squeeze(dim=-1)
         # next_token_ids = torch.where(t != 0, sampled_token_ids,
         #                              argmax_token_ids)
         # HACK AOYU suppose temperature != 0

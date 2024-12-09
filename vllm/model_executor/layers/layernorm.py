@@ -70,7 +70,7 @@ class RMSNorm(CustomOp):
         x: torch.Tensor,
         residual: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        # HACK use forward_native
+        # HACK AOYU use forward_native
         return self.forward_native(x, residual)
         if self.variance_size_override is not None:
             return self.forward_native(x, residual)

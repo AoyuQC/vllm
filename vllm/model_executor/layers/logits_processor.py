@@ -4,6 +4,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from vllm.distributed import (tensor_model_parallel_all_gather,
                               tensor_model_parallel_gather)
@@ -43,37 +44,75 @@ class LogitsProcessor(nn.Module):
         self.soft_cap = soft_cap
         # Whether to use gather or all-gather to gather the logits.
         self.use_gather = not current_platform.is_tpu()
-
+    
+    # HACK AOYU, simple logits processor
     def forward(
         self,
         lm_head: VocabParallelEmbedding,
         hidden_states: torch.Tensor,
-        sampling_metadata: Optional[SamplingMetadata] = None,
+        selected_token_indices,
+        # sampling_metadata: Optional[SamplingMetadata] = None,
         embedding_bias: Optional[torch.Tensor] = None,
     ) -> Optional[torch.Tensor]:
         if self.logits_as_input:
             logits = hidden_states
         else:
-            if sampling_metadata is not None:
-                hidden_states = _prune_hidden_states(hidden_states,
-                                                     sampling_metadata)
+            # if sampling_metadata is not None:
+                # hidden_states = _prune_hidden_states(hidden_states,
+                #                                      sampling_metadata)
+            # HACK AOYU simpler pruning function
+            hidden_states = hidden_states.index_select(0, selected_token_indices)
 
-            # Get the logits for the next tokens.
-            logits = self._get_logits(hidden_states, lm_head, embedding_bias)
-        if logits is not None:
-            if self.soft_cap is not None:
-                logits = logits / self.soft_cap
-                logits = torch.tanh(logits)
-                logits = logits * self.soft_cap
+            # # Get the logits for the next tokens.
+            # logits = self._get_logits(hidden_states, lm_head, embedding_bias)
+            # HACK only linear function
+            logits = F.linear(hidden_states, lm_head.weight, embedding_bias)
+        # if logits is not None:
+        #     if self.soft_cap is not None:
+        #         logits = logits / self.soft_cap
+        #         logits = torch.tanh(logits)
+        #         logits = logits * self.soft_cap
 
-            if self.scale != 1.0:
-                logits *= self.scale
+        #     if self.scale != 1.0:
+        #         logits *= self.scale
 
-            # Apply logits processors (if any).
-            if sampling_metadata is not None:
-                logits = _apply_logits_processors(logits, sampling_metadata)
+        #     # HACK AOYU no processors
+        #     # # Apply logits processors (if any).
+        #     # if sampling_metadata is not None:
+        #     #     logits = _apply_logits_processors(logits, sampling_metadata)
 
         return logits
+
+    # def forward(
+    #     self,
+    #     lm_head: VocabParallelEmbedding,
+    #     hidden_states: torch.Tensor,
+    #     sampling_metadata: Optional[SamplingMetadata] = None,
+    #     embedding_bias: Optional[torch.Tensor] = None,
+    # ) -> Optional[torch.Tensor]:
+    #     if self.logits_as_input:
+    #         logits = hidden_states
+    #     else:
+    #         if sampling_metadata is not None:
+    #             hidden_states = _prune_hidden_states(hidden_states,
+    #                                                  sampling_metadata)
+
+    #         # Get the logits for the next tokens.
+    #         logits = self._get_logits(hidden_states, lm_head, embedding_bias)
+    #     if logits is not None:
+    #         if self.soft_cap is not None:
+    #             logits = logits / self.soft_cap
+    #             logits = torch.tanh(logits)
+    #             logits = logits * self.soft_cap
+
+    #         if self.scale != 1.0:
+    #             logits *= self.scale
+
+    #         # Apply logits processors (if any).
+    #         if sampling_metadata is not None:
+    #             logits = _apply_logits_processors(logits, sampling_metadata)
+
+    #     return logits
 
     def _get_logits(
         self,
@@ -82,9 +121,11 @@ class LogitsProcessor(nn.Module):
         embedding_bias: Optional[torch.Tensor],
     ) -> Optional[torch.Tensor]:
         # Get the logits for the next tokens.
-        logits = lm_head.linear_method.apply(lm_head,
-                                             hidden_states,
-                                             bias=embedding_bias)
+        # logits = lm_head.linear_method.apply(lm_head,
+        #                                      hidden_states,
+        #                                      bias=embedding_bias)
+        # HACK AOYU use function
+        logits = F.linear(hidden_states, lm_head.weight, embedding_bias)
         if self.use_gather:
             # None may be returned for rank > 0
             logits = tensor_model_parallel_gather(logits)

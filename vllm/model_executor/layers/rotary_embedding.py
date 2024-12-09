@@ -46,7 +46,6 @@ def _apply_rotary_emb(
     x: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
-    is_neox_style: bool,
 ) -> torch.Tensor:
     """
     Args:
@@ -56,25 +55,49 @@ def _apply_rotary_emb(
         is_neox_style: Whether to use the Neox-style or GPT-J-style rotary
             positional embeddings.
     """
+    # HACK naive implementation
     cos = cos.unsqueeze(-2).to(x.dtype)
     sin = sin.unsqueeze(-2).to(x.dtype)
-    if is_neox_style:
-        # HACK AOYU
-        # x1, x2 = torch.chunk(x, 2, dim=-1)
-        # x = x.to(xm.xla_device())
-        # x = x.float()
-        # print("!!!")
-        x1 = x[..., ::2]
-        x2 = x[..., 1::2]
-    else:
-        x1 = x[..., ::2]
-        x2 = x[..., 1::2]
+    x1 = x[..., : x.shape[-1]//2]
+    x2 = x[..., x.shape[-1]//2:]
     o1 = x1 * cos - x2 * sin
     o2 = x2 * cos + x1 * sin
-    if is_neox_style:
-        return torch.cat((o1, o2), dim=-1)
-    else:
-        return torch.stack((o1, o2), dim=-1).flatten(-2)
+    return torch.cat((o1, o2), dim=-1)
+    # cos = cos.unsqueeze(-2).to(x.dtype)
+    # sin = sin.unsqueeze(-2).to(x.dtype)
+    # if is_neox_style:
+    #     # HACK AOYU
+    #     # x1, x2 = torch.chunk(x, 2, dim=-1)
+    #     # x = x.to(xm.xla_device())
+    #     # x = x.float()
+    #     x1 = x[..., : x.shape[-1]//2]
+    #     x2 = x[..., x.shape[-1]//2:]
+    # else:
+    #     x1 = x[..., ::2]
+    #     x2 = x[..., 1::2]
+    # o1 = x1 * cos - x2 * sin
+    # o2 = x2 * cos + x1 * sin
+    # if is_neox_style:
+    #     return torch.cat((o1, o2), dim=-1)
+    # else:
+    #     return torch.stack((o1, o2), dim=-1).flatten(-2)
+
+# def _rotate_half(x) -> torch.Tensor:
+#     """Rotates half the hidden dims of the input."""
+#     x1 = x[..., : x.shape[-1] // 2]
+#     x2 = x[..., x.shape[-1] // 2 :]
+#     return torch.cat((-x2, x1), dim=-1)
+
+# def apply_rotary_pos_emb(
+#     q, k, cos, sin, position_ids=None, unsqueeze_dim=1
+# ) -> Tuple[Tensor, Tensor]:
+#     """Applies Rotary Position Embedding to the query and key tensors."""
+
+#     cos = cos.unsqueeze(unsqueeze_dim)
+#     sin = sin.unsqueeze(unsqueeze_dim)
+#     q_embed = (q * cos) + (_rotate_half(q) * sin)
+#     k_embed = (k * cos) + (_rotate_half(k) * sin)
+#     return q_embed, k_embed
 
 
 @CustomOp.register("rotary_embedding")
@@ -141,17 +164,24 @@ class RotaryEmbedding(CustomOp):
 
         query_shape = query.shape
         query = query.view(num_tokens, -1, self.head_size)
-        query_rot = query[..., :self.rotary_dim]
-        query_pass = query[..., self.rotary_dim:]
-        query_rot = _apply_rotary_emb(query_rot, cos, sin, self.is_neox_style)
-        query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+        # HACK AOYU remove slicing
+        # query_rot = query[..., :self.rotary_dim]
+        # query_pass = query[..., self.rotary_dim:]
+        query_rot = query
+        query_rot = _apply_rotary_emb(query_rot, cos, sin)
+        # query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+        query = query_rot
 
         key_shape = key.shape
         key = key.view(num_tokens, -1, self.head_size)
-        key_rot = key[..., :self.rotary_dim]
-        key_pass = key[..., self.rotary_dim:]
-        key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
-        key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        # HACK AOYU remove slicing
+        # key_rot = key[..., :self.rotary_dim]
+        # key_pass = key[..., self.rotary_dim:]
+        key_rot = key
+        key_rot = _apply_rotary_emb(key_rot, cos, sin)
+        # key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
+        # key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        key = key_rot
         return query, key
 
     def forward_cuda(
@@ -161,8 +191,6 @@ class RotaryEmbedding(CustomOp):
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # HACK use forward_native
-        return self.forward_native(positions, query, key, offsets)
         from vllm import _custom_ops as ops
 
         self.cos_sin_cache = self.cos_sin_cache.to(query.device,

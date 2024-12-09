@@ -57,6 +57,8 @@ from .utils import (AutoWeightsLoader, PPMissingLayer, WeightsMapper,
                     is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
                     maybe_prefix)
+# HACK AOYU
+from vllm.model_executor.layers.rotary_embedding import _apply_rotary_emb
 
 
 class LlamaMLP(nn.Module):
@@ -178,6 +180,79 @@ class LlamaAttention(nn.Module):
             prefix=f"{prefix}.attn",
         )
 
+        # HACK AOYU
+        self.base = max_position_embeddings
+        dtype = None
+        cache = self._compute_cos_sin_cache()
+        cache = cache.to(dtype)
+        self.cos_sin_cache: torch.Tensor
+        self.register_buffer("cos_sin_cache", cache, persistent=False)
+
+    def _compute_inv_freq(self, base: Union[int, float]) -> torch.Tensor:
+        """Compute the inverse frequency."""
+        # NOTE(woosuk): To exactly match the HF implementation, we need to
+        # use CPU to compute the cache and then move it to GPU. However, we
+        # create the cache on GPU for faster initialization. This may cause
+        # a slight numerical difference between the HF implementation and ours.
+        inv_freq = 1.0 / (base**(torch.arange(
+            0, self.head_dim, 2, dtype=torch.float) / self.head_dim))
+        return inv_freq
+
+    def _compute_cos_sin_cache(self) -> torch.Tensor:
+        """Compute the cos and sin cache."""
+        inv_freq = self._compute_inv_freq(self.base)
+        t = torch.arange(self.max_position_embeddings, dtype=torch.float)
+
+        freqs = torch.einsum("i,j -> ij", t, inv_freq)
+        cos = freqs.cos()
+        sin = freqs.sin()
+        cache = torch.cat((cos, sin), dim=-1)
+        return cache
+    
+    # HACK AOYU: add rotary_emb implementation
+    def ad_hoc_rotary_embed(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        offsets: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # # if offsets is not None:
+        # #     positions = positions + offsets
+        positions = positions.flatten()
+        num_tokens = positions.shape[0]
+        cos_sin = self.cos_sin_cache.index_select(0, positions)
+        cos, sin = cos_sin.chunk(2, dim=-1)
+
+        query_shape = query.shape
+        query = query.view(num_tokens, -1, self.head_dim)
+        query_rot = query
+        # query_rot = query[..., :self.head_dim]
+        # query_pass = query[..., self.head_dim:]
+        # cos = cos.unsqueeze(-2).to(query.dtype)
+        # sin = sin.unsqueeze(-2).to(query.dtype)
+        # x1 = query_rot[..., : query_rot.shape[-1]//2]
+        # x2 = query_rot[..., query_rot.shape[-1]//2:]
+        # o1 = x1 * cos - x2 * sin
+        # o2 = x2 * cos + x1 * sin
+        # query_rot = torch.cat((o1,o2), dim=-1)
+        query_rot = _apply_rotary_emb(query_rot, cos, sin)
+        # query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+        query = query_rot
+        return query, query
+        # query_rot = _apply_rotary_emb(query_rot, cos, sin)
+        # key_rot = _apply_rotary_emb(query_rot, cos, sin)
+        # query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+
+        # key_shape = key.shape
+        # key = key.view(num_tokens, -1, self.head_dim)
+        # key_rot = key[..., :self.head_dim]
+        # key_pass = key[..., self.head_dim:]
+        # key_rot = _apply_rotary_emb(key_rot, cos, sin)
+        # # key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
+        # key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        # return query, key
+
     def forward(
         self,
         positions: torch.Tensor,
@@ -187,8 +262,12 @@ class LlamaAttention(nn.Module):
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        # # HACK AOYU add fake rotary embed
+        # q, k = self.ad_hoc_rotary_embed(positions, q, k)
         q, k = self.rotary_emb(positions, q, k)
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        # HACK reshape manually
+        attn_output = attn_output.reshape(-1,512)
         output, _ = self.o_proj(attn_output)
         return output
 
@@ -569,13 +648,23 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
                                   inputs_embeds)
         return model_output
 
-    def compute_logits(
+    def original_compute_logits(
         self,
         hidden_states: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> Optional[torch.Tensor]:
         logits = self.logits_processor(self.lm_head, hidden_states,
                                        sampling_metadata)
+        return logits
+
+    # HACK AOYU simple logits processor
+    def compute_logits(
+        self,
+        hidden_states: torch.Tensor,
+        selected_token_indices: SamplingMetadata,
+    ) -> Optional[torch.Tensor]:
+        logits = self.logits_processor(self.lm_head, hidden_states,
+                                       selected_token_indices)
         return logits
 
     def pooler(

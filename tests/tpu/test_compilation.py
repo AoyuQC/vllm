@@ -5,8 +5,14 @@ import tempfile
 import depyf
 
 from vllm.config import CompilationLevel
+from vllm.attention.selector import global_force_attn_backend, _Backend
+
+# Set the global attention backend to FLASH_ATTN
+global_force_attn_backend(_Backend.PALLAS)
+import torch_xla.core.xla_model as xm
 
 temp_dir = tempfile.mkdtemp()
+print(f"debug file is {temp_dir}")
 with depyf.prepare_debug(temp_dir):
     from vllm import LLM, SamplingParams
 
@@ -32,10 +38,12 @@ with depyf.prepare_debug(temp_dir):
 
     # disable custom dispatcher, let Dynamo takes over
     # all the control
-    llm = LLM(model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    # llm = LLM(model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    llm = LLM(model="nickypro/tinyllama-42M",
               enforce_eager=True,
               device='tpu',
-              compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
+            #   compilation_config={"custom_ops": ["-rotary_embedding"]})
+              compilation_config={"level": CompilationLevel.DYNAMO_AS_IS, "custom_ops": ["-rotary_embedding"]})
     outputs = llm.generate(prompts, sampling_params)
     for output, answer in zip(outputs, answers):
         prompt = output.prompt
