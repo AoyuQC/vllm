@@ -59,6 +59,8 @@ def _apply_rotary_emb(
     cos = cos.unsqueeze(-2).to(x.dtype)
     sin = sin.unsqueeze(-2).to(x.dtype)
     if is_neox_style:
+        x1 = x[..., : x.shape[-1]//2]
+        x2 = x[..., x.shape[-1]//2:]
         x1, x2 = torch.chunk(x, 2, dim=-1)
     else:
         x1 = x[..., ::2]
@@ -135,17 +137,22 @@ class RotaryEmbedding(CustomOp):
 
         query_shape = query.shape
         query = query.view(num_tokens, -1, self.head_size)
-        query_rot = query[..., :self.rotary_dim]
-        query_pass = query[..., self.rotary_dim:]
-        query_rot = _apply_rotary_emb(query_rot, cos, sin, self.is_neox_style)
-        query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+        # HACK AOYU get rid of query/key_pass in rotary_embedding.py/RotaryEmbedding/forward_native
+        # query_rot = query[..., :self.rotary_dim]
+        # query_pass = query[..., self.rotary_dim:]
+        # query_rot = _apply_rotary_emb(query_rot, cos, sin, self.is_neox_style)
+        # query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
+        query_rot = _apply_rotary_emb(query, cos, sin, self.is_neox_style)
+        query = query_rot.reshape(query_shape)
 
         key_shape = key.shape
         key = key.view(num_tokens, -1, self.head_size)
-        key_rot = key[..., :self.rotary_dim]
-        key_pass = key[..., self.rotary_dim:]
-        key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
-        key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        # key_rot = key[..., :self.rotary_dim]
+        # key_pass = key[..., self.rotary_dim:]
+        # key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
+        # key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        key_rot = _apply_rotary_emb(key, cos, sin, self.is_neox_style)
+        key = key_rot.reshape(key_shape)
         return query, key
 
     def forward_cuda(
