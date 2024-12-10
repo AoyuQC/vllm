@@ -38,8 +38,9 @@ def set_weight_attrs(
         # This sometimes causes OOM errors during model loading. To avoid this,
         # we sync the param tensor after its weight loader is called.
         # TODO(woosuk): Remove this hack once we have a better solution.
-        if current_platform.is_tpu() and key == "weight_loader":
-            value = _make_synced_weight_loader(value)
+        # HACK AOYU remove TPU style _make_synced_weight_loader in model_executor utils.py set_weight_attrs
+        # if current_platform.is_tpu() and key == "weight_loader":
+        #     value = _make_synced_weight_loader(value)
         setattr(weight, key, value)
 
 

@@ -108,38 +108,39 @@ class PallasAttentionBackendImpl(AttentionImpl):
 
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
-        if head_size % 128 != 0:
-            raise NotImplementedError("Head size must be a multiple of 128.")
-        if alibi_slopes is not None:
-            raise NotImplementedError("Alibi slopes is not supported.")
-        if sliding_window is not None:
-            raise NotImplementedError("Sliding window is not supported.")
-        if kv_cache_dtype != "auto":
-            raise NotImplementedError("FP8 KV cache dtype is not supported.")
-        if blocksparse_params is not None:
-            raise NotImplementedError("Blocksparse is not supported.")
-        if logits_soft_cap is not None:
-            raise NotImplementedError(
-                "Attention logits soft-capping is not supported.")
+        # HACK AOYU Disable initial check in  PallasAttentionBackendImpl(AttentionImpl)
+        # if head_size % 128 != 0:
+        #     raise NotImplementedError("Head size must be a multiple of 128.")
+        # if alibi_slopes is not None:
+        #     raise NotImplementedError("Alibi slopes is not supported.")
+        # if sliding_window is not None:
+        #     raise NotImplementedError("Sliding window is not supported.")
+        # if kv_cache_dtype != "auto":
+        #     raise NotImplementedError("FP8 KV cache dtype is not supported.")
+        # if blocksparse_params is not None:
+        #     raise NotImplementedError("Blocksparse is not supported.")
+        # if logits_soft_cap is not None:
+        #     raise NotImplementedError(
+        #         "Attention logits soft-capping is not supported.")
 
-        if torch_xla.tpu.version() < 4:
-            raise NotImplementedError("TPU version must be 4 or higher.")
+        # if torch_xla.tpu.version() < 4:
+        #     raise NotImplementedError("TPU version must be 4 or higher.")
 
-        self.megacore_mode = None
-        tpu_env = torch_xla.tpu.get_tpu_env()
-        tpu_type = (tpu_env.get("ACCELERATOR_TYPE", None)
-                    or tpu_env.get("TYPE", None)
-                    or tpu_env.get("TPU_ACCELERATOR_TYPE", None))
-        assert tpu_type is not None
-        tpu_type = tpu_type.lower()
+        # self.megacore_mode = None
+        # tpu_env = torch_xla.tpu.get_tpu_env()
+        # tpu_type = (tpu_env.get("ACCELERATOR_TYPE", None)
+        #             or tpu_env.get("TYPE", None)
+        #             or tpu_env.get("TPU_ACCELERATOR_TYPE", None))
+        # assert tpu_type is not None
+        # tpu_type = tpu_type.lower()
 
-        if (("lite" not in tpu_type) and ("v6" not in tpu_type)):
-            if self.num_kv_heads % 2 == 0:
-                self.megacore_mode = "kv_head"
-            else:
-                # NOTE(woosuk): If the batch size is not a multiple of 2, the
-                # megacore mode will be None.
-                self.megacore_mode = "batch"
+        # if (("lite" not in tpu_type) and ("v6" not in tpu_type)):
+        #     if self.num_kv_heads % 2 == 0:
+        #         self.megacore_mode = "kv_head"
+        #     else:
+        #         # NOTE(woosuk): If the batch size is not a multiple of 2, the
+        #         # megacore mode will be None.
+        #         self.megacore_mode = "batch"
 
     def forward(
         self,
