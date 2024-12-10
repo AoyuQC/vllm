@@ -825,8 +825,10 @@ class ModelWrapper(nn.Module):
         # Argmax sampling.
         # HACK AOYU use torch.max to replace torch.argmax -> no baby step validation
         # argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
-        argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
+        # HACK AOYU fix named tuple tensor bug
+        _, argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
         argmax_token_ids = argmax_token_ids.repeat(1, num_samples)
+        # argmax_token_ids = argmax_token_ids.expand(1, num_samples)
 
         # Zero temperature means greedy decoding. Avoid division by zero.
         nonzero_t = torch.where(t != 0, t, 1.0)
