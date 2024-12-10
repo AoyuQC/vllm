@@ -50,6 +50,8 @@ class TPUWorker(LoraNotSupportedWorkerBase, LocalOrDistributedWorkerBase):
 
     def init_device(self) -> None:
         os.environ["PJRT_DEVICE"] = "TPU"
+        # HACK AOYU Force env = neuron in tpu_worker.py init_device()
+        os.environ['PJRT_DEVICE'] = 'NEURON'
         torch.set_grad_enabled(False)
         torch.set_default_dtype(self.model_config.dtype)
 
