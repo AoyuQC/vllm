@@ -32,7 +32,9 @@ with depyf.prepare_debug(temp_dir):
 
     # disable custom dispatcher, let Dynamo takes over
     # all the control
-    llm = LLM(model="google/gemma-2b",
+
+    # llm = LLM(model="google/gemma-2b",
+    llm = LLM(model="TinyLlama/TinyLlama_v1.1",
               enforce_eager=True,
               compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
     outputs = llm.generate(prompts, sampling_params)

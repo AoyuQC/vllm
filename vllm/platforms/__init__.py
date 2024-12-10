@@ -91,6 +91,9 @@ try:
 except Exception:
     pass
 
+# HACK AOYU, force is_tpu=True
+is_tpu = True
+
 if is_tpu:
     # people might install pytorch built with cuda but run on tpu
     # so we need to check tpu first
