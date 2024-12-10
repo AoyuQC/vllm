@@ -168,6 +168,9 @@ class PallasAttentionBackendImpl(AttentionImpl):
         Returns:
             shape = [batch_size, seq_len, num_heads * head_size]
         """
+        # HACK AOYU bypass pallas attention impl in backends/pallas.py forward
+        output = query
+        return output
         assert k_scale == 1.0 and v_scale == 1.0
         if attn_type != AttentionType.DECODER:
             raise NotImplementedError("Encoder self-attention and "
