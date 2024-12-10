@@ -823,7 +823,9 @@ class ModelWrapper(nn.Module):
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
 
         # Argmax sampling.
-        argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
+        # HACK AOYU use torch.max to replace torch.argmax -> no baby step validation
+        # argmax_token_ids = torch.argmax(logits, dim=-1, keepdim=True)
+        argmax_token_ids = torch.max(logits, dim=-1, keepdim=True)
         argmax_token_ids = argmax_token_ids.repeat(1, num_samples)
 
         # Zero temperature means greedy decoding. Avoid division by zero.
