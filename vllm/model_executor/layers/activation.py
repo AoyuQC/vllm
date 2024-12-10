@@ -61,7 +61,9 @@ class SiluAndMul(CustomOp):
     def forward_native(self, x: torch.Tensor) -> torch.Tensor:
         """PyTorch-native implementation equivalent to forward()."""
         d = x.shape[-1] // 2
-        return F.silu(x[..., :d]) * x[..., d:]
+        # HACK AOYU use F.sigmoid to replace F.silu in layers/activations.py SiluAndMul, forward_native 
+        return F.sigmoid(x[..., :d]) * x[..., d:]
+        # return F.silu(x[..., :d]) * x[..., d:]
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         from vllm import _custom_ops as ops
