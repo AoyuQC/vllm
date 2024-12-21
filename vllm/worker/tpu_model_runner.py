@@ -130,6 +130,9 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 self.model_config.max_model_len)
 
     def load_model(self) -> None:
+        import depyf
+        # from depyf.explain.backend import eager, aot_eager
+
         self.device = self.device_config.device
 
         # NOTE(woosuk): While the executor assigns the TP ranks to the worker
@@ -145,7 +148,9 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         with patch(
                 "vllm.model_executor.layers.vocab_parallel_embedding."
                 "get_tensor_model_parallel_rank",
-                return_value=xm_tp_rank):
+                return_value=xm_tp_rank,
+                reorderable_logging_functions={print}
+        ):
             model = get_model(vllm_config=self.vllm_config)
         model = model.eval()
         xm.wait_device_ops()
@@ -265,13 +270,15 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
         # Dummy run.
         batch_size, seq_len = token_ids.shape
         # HACK AOYU add fake hidden state to bypass model calculation
-        fake_hidden_states = torch.rand((batch_size, seq_len, 2048)).to(torch.bfloat16).to(self.device)
         # HACK AOYU add fake token ids to bypass complete model compilation
         # HACK AOYU set random output logits for full end-to-end pipeline
-        fake_token_ids = torch.randint(1,1000, (batch_size, num_samples)).to(torch.int64).to(self.device)
-        fake_logits = torch.rand_like(torch.rand((batch_size, 32000))).to(torch.float32).to(self.device)
+        # fake_hidden_states = torch.rand((batch_size, seq_len, 2048)).to(torch.bfloat16).to(self.device)
+        # fake_token_ids = torch.randint(1,1000, (batch_size, num_samples)).to(torch.int64).to(self.device)
+        # fake_logits = torch.rand_like(torch.rand((batch_size, 32000))).to(torch.float32).to(self.device)
+        # import pdb
+        # pdb.set_trace()
         self.model(token_ids, position_ids, attn_metadata, input_lens, t, p,
-                   num_samples, kv_caches, fake_hidden_states, fake_token_ids, fake_logits)
+                   num_samples, kv_caches) # , fake_hidden_states, fake_token_ids, fake_logits)
 
     def warmup_model(
         self,
@@ -670,15 +677,15 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 p = model_input.p[i:i + 1].to(self.device)
                 batch_size, seq_len = token_ids.shape
                 # HACK AOYU add fake hidden state to bypass model calculation
-                fake_hidden_states = torch.rand((1, seq_len, 2048)).to(torch.bfloat16).to(self.device)
                 # HACK AOYU add fake token ids to bypass complete model compilation
                 # HACK AOYU set random output logits for full end-to-end pipeline
-                fake_token_ids = torch.randint(1,1000, (1, model_input.num_samples)).to(torch.int64).to(self.device)
-                fake_logits = torch.rand_like(torch.rand((1, 32000))).to(torch.float32).to(self.device)
+                # fake_hidden_states = torch.rand((1, seq_len, 2048)).to(torch.bfloat16).to(self.device)
+                # fake_token_ids = torch.randint(1,1000, (1, model_input.num_samples)).to(torch.int64).to(self.device)
+                # fake_logits = torch.rand_like(torch.rand((1, 32000))).to(torch.float32).to(self.device)
                 output_token_ids = self.model(token_ids, position_ids,
                                               attn_metadata, input_lens, t, p,
                                               model_input.num_samples,
-                                              kv_caches, fake_hidden_states, fake_token_ids, fake_logits)
+                                              kv_caches) # , fake_hidden_states, fake_token_ids, fake_logits)
                 next_token_ids.append(output_token_ids[0])
                 start_idx = end_idx
 
@@ -725,15 +732,15 @@ class TPUModelRunner(ModelRunnerBase[ModelInputForTPU]):
                 slot_mapping = attn_metadata.slot_mapping
                 batch_size, seq_len = token_ids.shape
                 # HACK AOYU add fake hidden state to bypass model calculation
-                fake_hidden_states = torch.rand((batch_size, seq_len, 2048)).to(torch.bfloat16).to(self.device)
                 # HACK AOYU add fake token ids to bypass complete model compilation
                 # HACK AOYU set random output logits for full end-to-end pipeline
-                fake_token_ids = torch.randint(1,1000, (batch_size,)).to(torch.int64).to(self.device)
-                fake_logits = torch.rand_like(torch.rand((batch_size, 32000))).to(torch.float32).to(self.device)
+                # fake_hidden_states = torch.rand((batch_size, seq_len, 2048)).to(torch.bfloat16).to(self.device)
+                # fake_token_ids = torch.randint(1,1000, (batch_size,)).to(torch.int64).to(self.device)
+                # fake_logits = torch.rand_like(torch.rand((batch_size, 32000))).to(torch.float32).to(self.device)
                 output_token_ids = self.model(token_ids, position_ids,
                                               attn_metadata, input_lens, t, p,
                                               model_input.num_samples,
-                                              kv_caches, fake_hidden_states, fake_token_ids, fake_logits)
+                                              kv_caches) # , fake_hidden_states, fake_token_ids, fake_logits)
                 self.cached_step_outputs.append(output_token_ids)
 
                 if i < num_steps - 1:
@@ -785,9 +792,9 @@ class ModelWrapper(nn.Module):
         p: torch.Tensor,
         num_samples: int,
         kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
-        fake_hidden_states,
-        fake_token_ids,
-        fake_logits,
+        # fake_hidden_states,
+        # fake_token_ids,
+        # fake_logits,
     ) -> torch.Tensor:
         """Executes the forward pass of the model and samples the next token.
 
@@ -839,14 +846,14 @@ class ModelWrapper(nn.Module):
             slot_mapping = slot_mapping.flatten()
             attn_metadata.slot_mapping = slot_mapping
 
-        # hidden_states = self.model(
-        #     token_ids,
-        #     position_ids,
-        #     kv_caches,
-        #     attn_metadata,
-        # )
+        hidden_states = self.model(
+            token_ids,
+            position_ids,
+            kv_caches,
+            attn_metadata,
+        )
         # HACK AOYU add fake hidden state to bypass attention calculation
-        hidden_states = fake_hidden_states
+        # hidden_states = fake_hidden_states
         hidden_states = hidden_states.flatten(0, 1)
         logits = self.model.compute_logits(hidden_states, sampling_metadata)
 

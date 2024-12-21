@@ -129,7 +129,6 @@ class Attention(nn.Module):
         attn_metadata: AttentionMetadata,
         attn_type: str = AttentionType.DECODER,
     ) -> torch.Tensor:
-
         if self.use_direct_call:
             return self.impl.forward(query,
                                      key,

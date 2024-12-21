@@ -108,6 +108,8 @@ class PallasAttentionBackendImpl(AttentionImpl):
 
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
+        # import pdb
+        # pdb.set_trace()
         # HACK AOYU Disable initial check in  PallasAttentionBackendImpl(AttentionImpl)
         # if head_size % 128 != 0:
         #     raise NotImplementedError("Head size must be a multiple of 128.")
@@ -169,8 +171,8 @@ class PallasAttentionBackendImpl(AttentionImpl):
             shape = [batch_size, seq_len, num_heads * head_size]
         """
         # HACK AOYU bypass pallas attention impl in backends/pallas.py forward
-        output = query
-        return output
+        # output = query
+        # return output
         assert k_scale == 1.0 and v_scale == 1.0
         if attn_type != AttentionType.DECODER:
             raise NotImplementedError("Encoder self-attention and "
@@ -182,6 +184,7 @@ class PallasAttentionBackendImpl(AttentionImpl):
         key = key.view(batch_size, seq_len, self.num_kv_heads, self.head_size)
         value = value.view(batch_size, seq_len, self.num_kv_heads,
                            self.head_size)
+        _, _, block_size, _ = kv_cache[0].shape
 
         if kv_cache[0].numel() > 0:
             slot_mapping = attn_metadata.slot_mapping
@@ -210,12 +213,29 @@ class PallasAttentionBackendImpl(AttentionImpl):
                 # [batch_size, num_heads, seq_len, d_model]
                 # while the input is [batch_size, seq_len, num_heads, d_model].
                 # Permute the input to match the required format.
-                output = torch.ops.xla.flash_attention(
-                    query.permute(0, 2, 1, 3),
-                    key.permute(0, 2, 1, 3),
-                    value.permute(0, 2, 1, 3),
-                    True,
+                from vllm.attention.ops.nki_flash_attn import context_attention_fwd
+                output_nki = context_attention_fwd(
+                    query,
+                    key,
+                    value,
+                    key_cache=None,
+                    value_cache=None,
+                    block_table=None,
+                    attn_mask=None,
+                    n_kv_head=self.num_kv_heads,
+                    head_size=self.head_size,
+                    # query_lens=torch.tensor([seq_len]),
+                    # seq_lens=torch.tensor([seq_len]),
+                    # batch_size=batch_size,
+                    # block_size=block_size,
+                    # max_model_len=seq_len,
                 )
+                # output = torch.ops.xla.flash_attention(
+                #     query.permute(0, 2, 1, 3),
+                #     key.permute(0, 2, 1, 3),
+                #     value.permute(0, 2, 1, 3),
+                #     True,
+                # )
                 output = output.permute(0, 2, 1, 3)
             else:
                 # Prefill with paged KV cache.
@@ -223,17 +243,34 @@ class PallasAttentionBackendImpl(AttentionImpl):
                 num_kv_pages_per_compute_block = 16
                 num_queries_per_compute_block = 16
                 assert seq_len % num_queries_per_compute_block == 0
-                output = torch.ops.xla.multi_queries_paged_attention(
+                # output = torch.ops.xla.multi_queries_paged_attention(
+                #     query,
+                #     key_cache,
+                #     value_cache,
+                #     attn_metadata.context_lens,
+                #     attn_metadata.block_tables,
+                #     attn_metadata.effective_query_lens,
+                #     num_kv_pages_per_compute_block,
+                #     num_queries_per_compute_block,
+                #     use_kernel=True,
+                # )
+                from vllm.attention.ops.nki_flash_attn import context_attention_fwd
+                output = context_attention_fwd(
                     query,
-                    key_cache,
-                    value_cache,
-                    attn_metadata.context_lens,
-                    attn_metadata.block_tables,
-                    attn_metadata.effective_query_lens,
-                    num_kv_pages_per_compute_block,
-                    num_queries_per_compute_block,
-                    use_kernel=True,
+                    key,
+                    value,
+                    key_cache=key_cache,
+                    value_cache=value_cache,
+                    block_table=None,
+                    attn_mask=None,
+                    n_kv_head=self.num_kv_heads,
+                    head_size=self.head_size,
+                    # query_lens=attn_metadata.effective_query_lens,
+                    # seq_lens=attn_metadata.context_lens+attn_metadata.effective_query_lens,
+                    # batch_size=batch_size,
+                    # block_size=block_size,
                 )
+
         else:
             # Decoding run.
             assert kv_cache[0].numel() > 0
