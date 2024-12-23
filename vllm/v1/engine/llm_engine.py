@@ -11,6 +11,7 @@ from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import RequestOutput
+from vllm.platforms import current_platform
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import SamplingParams
@@ -113,6 +114,13 @@ class LLMEngine:
         if distributed_executor_backend == "mp":
             from vllm.v1.executor.multiproc_executor import MultiprocExecutor
             executor_class = MultiprocExecutor
+        # HACK AOYU temp for tpu platform, later move to neuron
+        elif current_platform.is_tpu():
+            from vllm.v1.executor.neuron_executor import NeuronExecutor
+            executor_class = NeuronExecutor
+        elif current_platform.is_neuron_v1():
+            from vllm.v1.executor.neuron_executor import NeuronExecutor
+            executor_class = NeuronExecutor
         else:
             assert (distributed_executor_backend is None)
             from vllm.v1.executor.uniproc_executor import UniprocExecutor

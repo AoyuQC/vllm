@@ -9,19 +9,19 @@ from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
 from vllm.attention.backends.utils import CommonAttentionState
 
 
-class PallasAttentionBackend(AttentionBackend):
+class NeuronAttentionBackend(AttentionBackend):
 
     @staticmethod
     def get_name() -> str:
-        return "PALLAS"
+        return "NEURON_ATTN_V1"
 
     @staticmethod
-    def get_impl_cls() -> Type["PallasAttentionBackendImpl"]:
-        return PallasAttentionBackendImpl
+    def get_impl_cls() -> Type["NeuronAttentionBackendImpl"]:
+        return NeuronAttentionBackendImpl
 
     @staticmethod
-    def get_metadata_cls() -> Type["PallasMetadata"]:
-        return PallasMetadata
+    def get_metadata_cls() -> Type["NeuronAttentionMetadata"]:
+        return NeuronAttentionMetadata
 
     @staticmethod
     def get_state_cls() -> Type["CommonAttentionState"]:
@@ -59,35 +59,39 @@ class PallasAttentionBackend(AttentionBackend):
 
 
 @dataclass
-class PallasMetadata(AttentionMetadata):
+class NeuronAttentionMetadata:
 
-    # Currently, input sequences can only contain all prefills
-    # or all decoding.
+    is_prompt: bool
+    slot_mapping: torch.Tensor
     block_tables: Optional[torch.Tensor] = None
     context_lens: Optional[torch.Tensor] = None
-    effective_query_lens: Optional[torch.Tensor] = None
+    # Currently, input sequences can only contain all prefills
+    # or all decoding.
+    # block_tables: Optional[torch.Tensor] = None
+    # context_lens: Optional[torch.Tensor] = None
+    # effective_query_lens: Optional[torch.Tensor] = None
 
-    @property
-    def prefill_metadata(self) -> Optional["PallasMetadata"]:
-        if self.num_prefills == 0:
-            return None
+    # @property
+    # def prefill_metadata(self) -> Optional["NeuronAttentionMetadata"]:
+    #     if self.num_prefills == 0:
+    #         return None
 
-        assert self.num_decode_tokens == 0
-        return self
+    #     assert self.num_decode_tokens == 0
+    #     return self
 
-    @property
-    def decode_metadata(self) -> Optional["PallasMetadata"]:
-        if self.num_decode_tokens == 0:
-            return None
+    # @property
+    # def decode_metadata(self) -> Optional["NeuronAttentionMetadata"]:
+    #     if self.num_decode_tokens == 0:
+    #         return None
 
-        assert self.num_prefills == 0
-        assert self.num_prefill_tokens == 0
-        assert self.block_tables is not None
-        assert self.context_lens is not None
-        return self
+    #     assert self.num_prefills == 0
+    #     assert self.num_prefill_tokens == 0
+    #     assert self.block_tables is not None
+    #     assert self.context_lens is not None
+    #     return self
 
 
-class PallasAttentionBackendImpl(AttentionImpl):
+class NeuronAttentionBackendImpl(AttentionImpl):
 
     def __init__(
         self,
@@ -108,38 +112,39 @@ class PallasAttentionBackendImpl(AttentionImpl):
 
         assert self.num_heads % self.num_kv_heads == 0
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
-        if head_size % 128 != 0:
-            raise NotImplementedError("Head size must be a multiple of 128.")
-        if alibi_slopes is not None:
-            raise NotImplementedError("Alibi slopes is not supported.")
-        if sliding_window is not None:
-            raise NotImplementedError("Sliding window is not supported.")
-        if kv_cache_dtype != "auto":
-            raise NotImplementedError("FP8 KV cache dtype is not supported.")
-        if blocksparse_params is not None:
-            raise NotImplementedError("Blocksparse is not supported.")
-        if logits_soft_cap is not None:
-            raise NotImplementedError(
-                "Attention logits soft-capping is not supported.")
+        # HACK AOYU Disable initial check in  NeuronAttentionBackendImpl(AttentionImpl)
+        # if head_size % 128 != 0:
+        #     raise NotImplementedError("Head size must be a multiple of 128.")
+        # if alibi_slopes is not None:
+        #     raise NotImplementedError("Alibi slopes is not supported.")
+        # if sliding_window is not None:
+        #     raise NotImplementedError("Sliding window is not supported.")
+        # if kv_cache_dtype != "auto":
+        #     raise NotImplementedError("FP8 KV cache dtype is not supported.")
+        # if blocksparse_params is not None:
+        #     raise NotImplementedError("Blocksparse is not supported.")
+        # if logits_soft_cap is not None:
+        #     raise NotImplementedError(
+        #         "Attention logits soft-capping is not supported.")
 
-        if torch_xla.tpu.version() < 4:
-            raise NotImplementedError("TPU version must be 4 or higher.")
+        # if torch_xla.tpu.version() < 4:
+        #     raise NotImplementedError("TPU version must be 4 or higher.")
 
-        self.megacore_mode = None
-        tpu_env = torch_xla.tpu.get_tpu_env()
-        tpu_type = (tpu_env.get("ACCELERATOR_TYPE", None)
-                    or tpu_env.get("TYPE", None)
-                    or tpu_env.get("TPU_ACCELERATOR_TYPE", None))
-        assert tpu_type is not None
-        tpu_type = tpu_type.lower()
+        # self.megacore_mode = None
+        # tpu_env = torch_xla.tpu.get_tpu_env()
+        # tpu_type = (tpu_env.get("ACCELERATOR_TYPE", None)
+        #             or tpu_env.get("TYPE", None)
+        #             or tpu_env.get("TPU_ACCELERATOR_TYPE", None))
+        # assert tpu_type is not None
+        # tpu_type = tpu_type.lower()
 
-        if (("lite" not in tpu_type) and ("v6" not in tpu_type)):
-            if self.num_kv_heads % 2 == 0:
-                self.megacore_mode = "kv_head"
-            else:
-                # NOTE(woosuk): If the batch size is not a multiple of 2, the
-                # megacore mode will be None.
-                self.megacore_mode = "batch"
+        # if (("lite" not in tpu_type) and ("v6" not in tpu_type)):
+        #     if self.num_kv_heads % 2 == 0:
+        #         self.megacore_mode = "kv_head"
+        #     else:
+        #         # NOTE(woosuk): If the batch size is not a multiple of 2, the
+        #         # megacore mode will be None.
+        #         self.megacore_mode = "batch"
 
     def forward(
         self,
@@ -147,13 +152,13 @@ class PallasAttentionBackendImpl(AttentionImpl):
         key: torch.Tensor,
         value: torch.Tensor,
         kv_cache: Tuple[torch.Tensor, torch.Tensor],
-        attn_metadata: PallasMetadata,
+        attn_metadata: NeuronAttentionMetadata,
         k_scale: float = 1.0,
         v_scale: float = 1.0,
         attn_type: str = AttentionType.DECODER,
         output: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Forward pass with Pallas attention.
+        """Forward pass with Neuron attention.
 
         Args:
             query: shape = [batch_size, seq_len, num_heads * head_size]
@@ -174,7 +179,7 @@ class PallasAttentionBackendImpl(AttentionImpl):
             raise NotImplementedError("Encoder self-attention and "
                                       "encoder/decoder cross-attention "
                                       "are not implemented for "
-                                      "PallasAttentionBackendImpl")
+                                      "NeuronAttentionBackendImpl")
         batch_size, seq_len, hidden_size = query.shape
         query = query.view(batch_size, seq_len, self.num_heads, self.head_size)
         key = key.view(batch_size, seq_len, self.num_kv_heads, self.head_size)
@@ -191,7 +196,7 @@ class PallasAttentionBackendImpl(AttentionImpl):
             if attn_metadata.block_tables is None:
                 # Prefill without paged KV cache.
                 assert seq_len % 16 == 0, (
-                    "Pallas FlashAttention kernel requires seq_len to be a "
+                    "Neuron FlashAttention kernel requires seq_len to be a "
                     f"multiple of 16 but got {seq_len}")
 
                 # Handle GQA/MQA.
@@ -240,7 +245,7 @@ class PallasAttentionBackendImpl(AttentionImpl):
 
             assert attn_metadata.block_tables is not None
             assert attn_metadata.context_lens is not None
-            # NOTE(woosuk): The PagedAttention Pallas kernel stores the entire
+            # NOTE(woosuk): The PagedAttention Neuron kernel stores the entire
             # block table in SMEM. Therefore, if the block table is too large,
             # the kernel compilation will fail. To avoid this, we split the
             # batch dimension into smaller chunks and run the kernel multiple

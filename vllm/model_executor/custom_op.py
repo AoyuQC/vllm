@@ -58,6 +58,12 @@ class CustomOp(nn.Module):
         # PyTorch-native implementation.
         return self.forward_native(*args, **kwargs)
 
+    def forward_neuron(self, *args, **kwargs):
+        # By default, we assume that Neuron ops are compatible with the
+        # PyTorch-native implementation.
+        # HACK AOYU: This is a placeholder for future extensions.
+        return self.forward_native(*args, **kwargs)
+
     def dispatch_forward(self):
         # NOTE(woosuk): Here we assume that vLLM was built for only one
         # specific backend. Currently, we do not support dynamic dispatching.
@@ -82,6 +88,8 @@ class CustomOp(nn.Module):
             return self.forward_tpu
         elif current_platform.is_xpu():
             return self.forward_xpu
+        elif current_platform.is_neuron_v1():
+            return self.forward_neuron
         else:
             return self.forward_cuda
 

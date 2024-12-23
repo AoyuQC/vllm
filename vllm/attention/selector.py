@@ -163,6 +163,10 @@ def _cached_get_attn_backend(
         logger.info("Using Pallas backend.")
         from vllm.attention.backends.pallas import PallasAttentionBackend
         return PallasAttentionBackend
+    elif backend == _Backend.NEURON_ATTN_V1:
+        logger.info("Using Neuron attention backend.")
+        from vllm.v1.attention.backends.neuron_attn import NeuronAttentionBackend
+        return NeuronAttentionBackend
     elif backend == _Backend.NO_ATTENTION:
         from vllm.attention.backends.placeholder_attn import (
             PlaceholderAttentionBackend)

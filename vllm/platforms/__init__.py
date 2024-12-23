@@ -91,6 +91,10 @@ try:
 except Exception:
     pass
 
+# HACK AOYU is_neuron_v1 for neuron v1 debug, later replace is_neuron_v1 with is_neuron after complete test
+is_neuron_v1 = True
+# is_tpu = True
+
 if is_tpu:
     # people might install pytorch built with cuda but run on tpu
     # so we need to check tpu first
@@ -111,6 +115,9 @@ elif is_xpu:
 elif is_cpu:
     from .cpu import CpuPlatform
     current_platform = CpuPlatform()
+elif is_neuron_v1:
+    from .neuron_v1 import NeuronPlatform
+    current_platform = NeuronPlatform()
 elif is_neuron:
     from .neuron import NeuronPlatform
     current_platform = NeuronPlatform()
