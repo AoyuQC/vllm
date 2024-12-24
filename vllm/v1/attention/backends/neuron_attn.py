@@ -172,8 +172,6 @@ class NeuronAttentionBackendImpl(AttentionImpl):
         Returns:
             shape = [batch_size, seq_len, num_heads * head_size]
         """
-        output = query
-        return output
         assert k_scale == 1.0 and v_scale == 1.0
         if attn_type != AttentionType.DECODER:
             raise NotImplementedError("Encoder self-attention and "
@@ -192,33 +190,56 @@ class NeuronAttentionBackendImpl(AttentionImpl):
             write_to_kv_cache(key, value, key_cache, value_cache, slot_mapping)
 
         query = query * self.scale
-        if attn_metadata.num_prefills > 0:
+        # if attn_metadata.num_prefills > 0:
+        if attn_metadata.is_prompt is True:
             if attn_metadata.block_tables is None:
                 # Prefill without paged KV cache.
                 assert seq_len % 16 == 0, (
-                    "Neuron FlashAttention kernel requires seq_len to be a "
+                    "Pallas FlashAttention kernel requires seq_len to be a "
                     f"multiple of 16 but got {seq_len}")
 
-                # Handle GQA/MQA.
-                if self.num_kv_heads != self.num_heads:
-                    key = key.repeat_interleave(self.num_queries_per_kv,
-                                                dim=-2)
-                    key = key.view(batch_size, seq_len, self.num_heads,
-                                   self.head_size)
-                    value = value.repeat_interleave(self.num_queries_per_kv,
-                                                    dim=-2)
-                    value = value.view(batch_size, seq_len, self.num_heads,
-                                       self.head_size)
+                # # Handle GQA/MQA.
+                # # NKI attention dosen't need this
+                # if self.num_kv_heads != self.num_heads:
+                #     key = key.repeat_interleave(self.num_queries_per_kv,
+                #                                 dim=-2)
+                #     key = key.view(batch_size, seq_len, self.num_heads,
+                #                    self.head_size)
+                #     value = value.repeat_interleave(self.num_queries_per_kv,
+                #                                     dim=-2)
+                #     value = value.view(batch_size, seq_len, self.num_heads,
+                #                        self.head_size)
                 # FlashAttention kernel requires the input shape to be
                 # [batch_size, num_heads, seq_len, d_model]
                 # while the input is [batch_size, seq_len, num_heads, d_model].
                 # Permute the input to match the required format.
-                output = torch.ops.xla.flash_attention(
-                    query.permute(0, 2, 1, 3),
-                    key.permute(0, 2, 1, 3),
-                    value.permute(0, 2, 1, 3),
-                    True,
+                # NKI Flash paged  attention reuiqres the input shape to be
+                # query: [1, n_heads, d, seq_q]
+                # key: [1, n_kv_heads, d, seq_k]
+                # value: [1, n_kv_heads, seq_v, d]
+                from vllm.attention.ops.nki_flash_attn import context_attention_fwd
+                output = context_attention_fwd(
+                    query.permute(0,2,3,1),
+                    key.permute(0,2,3,1),
+                    value.permute(0,2,1,3),
+                    key_cache=key_cache,
+                    value_cache=value_cache,
+                    block_table=None,
+                    attn_mask=None,
+                    n_kv_head=self.num_kv_heads,
+                    head_size=self.head_size,
+                    # query_lens=torch.tensor([seq_len]),
+                    # seq_lens=torch.tensor([seq_len]),
+                    # batch_size=batch_size,
+                    # block_size=block_size,
+                    # max_model_len=seq_len,
                 )
+                # output = torch.ops.xla.flash_attention(
+                #     query.permute(0, 2, 1, 3),
+                #     key.permute(0, 2, 1, 3),
+                #     value.permute(0, 2, 1, 3),
+                #     True,
+                # )
                 output = output.permute(0, 2, 1, 3)
             else:
                 # Prefill with paged KV cache.
@@ -226,17 +247,37 @@ class NeuronAttentionBackendImpl(AttentionImpl):
                 num_kv_pages_per_compute_block = 16
                 num_queries_per_compute_block = 16
                 assert seq_len % num_queries_per_compute_block == 0
-                output = torch.ops.xla.multi_queries_paged_attention(
-                    query,
-                    key_cache,
-                    value_cache,
-                    attn_metadata.context_lens,
-                    attn_metadata.block_tables,
-                    attn_metadata.effective_query_lens,
-                    num_kv_pages_per_compute_block,
-                    num_queries_per_compute_block,
-                    use_kernel=True,
+                # output = torch.ops.xla.multi_queries_paged_attention(
+                #     query,
+                #     key_cache,
+                #     value_cache,
+                #     attn_metadata.context_lens,
+                #     attn_metadata.block_tables,
+                #     attn_metadata.effective_query_lens,
+                #     num_kv_pages_per_compute_block,
+                #     num_queries_per_compute_block,
+                #     use_kernel=True,
+                # )
+                from vllm.attention.ops.nki_flash_attn import context_attention_fwd
+                output = context_attention_fwd(
+                    query.permute(0,2,3,1),
+                    key.permute(0,2,3,1),
+                    value.permute(0,2,1,3),
+                    # query,
+                    # key,
+                    # value,
+                    key_cache=key_cache,
+                    value_cache=value_cache,
+                    block_table=None,
+                    attn_mask=None,
+                    n_kv_head=self.num_kv_heads,
+                    head_size=self.head_size,
+                    # query_lens=attn_metadata.effective_query_lens,
+                    # seq_lens=attn_metadata.context_lens+attn_metadata.effective_query_lens,
+                    # batch_size=batch_size,
+                    # block_size=block_size,
                 )
+
         else:
             # Decoding run.
             assert kv_cache[0].numel() > 0
@@ -245,7 +286,7 @@ class NeuronAttentionBackendImpl(AttentionImpl):
 
             assert attn_metadata.block_tables is not None
             assert attn_metadata.context_lens is not None
-            # NOTE(woosuk): The PagedAttention Neuron kernel stores the entire
+            # NOTE(woosuk): The PagedAttention Pallas kernel stores the entire
             # block table in SMEM. Therefore, if the block table is too large,
             # the kernel compilation will fail. To avoid this, we split the
             # batch dimension into smaller chunks and run the kernel multiple

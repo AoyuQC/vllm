@@ -903,7 +903,7 @@ class ModelWrapper(TorchCompileWrapperWithCustomDispatcher):
         self.model = model
         compiled_callable = torch.compile(self.forward,
                                           backend="openxla",
-                                          fullgraph=True,
+                                          fullgraph=False,
                                           dynamic=False)
         super().__init__(compiled_callable)
 
