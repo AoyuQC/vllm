@@ -11,49 +11,49 @@ import depyf
 
 from vllm.config import CompilationLevel
 
-temp_dir = tempfile.mkdtemp()
-print(f"temp dir for compile debug: {temp_dir}")
-with depyf.prepare_debug(temp_dir):
-    from vllm import LLM, SamplingParams
+# temp_dir = tempfile.mkdtemp()
+# print(f"temp dir for compile debug: {temp_dir}")
+# with depyf.prepare_debug(temp_dir):
+from vllm import LLM, SamplingParams
 
-    prompts = [
-        "A girl",
-    ]
-    answers = [
-        " or, through inaction, allow a human being to come to harm.",
-    ]
-    # prompts = [
-    #     "A robot may not injure a human being",
-    #     "It is only with the heart that one can see rightly;",
-    #     "The greatest glory in living lies not in never falling,",
-    #     "This is a test",
-    # ]
-    # answers = [
-    #     " or, through inaction, allow a human being to come to harm.",
-    #     " what is essential is invisible to the eye.",
-    # ]
-    N = 1
-    # Currently, top-p sampling is disabled. `top_p` should be 1.0.
-    sampling_params = SamplingParams(temperature=0.7,
-                                     top_p=1.0,
-                                     n=N,
-                                     max_tokens=16)
+prompts = [
+    "A girl",
+]
+answers = [
+    " or, through inaction, allow a human being to come to harm.",
+]
+# prompts = [
+#     "A robot may not injure a human being",
+#     "It is only with the heart that one can see rightly;",
+#     "The greatest glory in living lies not in never falling,",
+#     "This is a test",
+# ]
+# answers = [
+#     " or, through inaction, allow a human being to come to harm.",
+#     " what is essential is invisible to the eye.",
+# ]
+N = 1
+# Currently, top-p sampling is disabled. `top_p` should be 1.0.
+sampling_params = SamplingParams(temperature=0.7,
+                                    top_p=1.0,
+                                    n=N,
+                                    max_tokens=16)
 
-    # Set `enforce_eager=True` to avoid ahead-of-time compilation.
-    # In real workloads, `enforace_eager` should be `False`.
+# Set `enforce_eager=True` to avoid ahead-of-time compilation.
+# In real workloads, `enforace_eager` should be `False`.
 
-    # disable custom dispatcher, let Dynamo takes over
-    # all the control
-    llm = LLM(model="TinyLlama/TinyLlama_v1.1",
-              enforce_eager=True,
-              block_size=128,
-              compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
-    outputs = llm.generate(prompts, sampling_params)
-    for output, answer in zip(outputs, answers):
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
-        assert generated_text.startswith(answer)
+# disable custom dispatcher, let Dynamo takes over
+# all the control
+llm = LLM(model="TinyLlama/TinyLlama_v1.1",
+            enforce_eager=True,
+            block_size=128,
+            compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
+outputs = llm.generate(prompts, sampling_params)
+for output, answer in zip(outputs, answers):
+    prompt = output.prompt
+    generated_text = output.outputs[0].text
+    print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+    assert generated_text.startswith(answer)
 
 compiled_code = sorted(
     glob.glob(os.path.join(temp_dir, "__transformed_code*.py")))

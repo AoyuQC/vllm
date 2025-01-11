@@ -175,6 +175,7 @@ class NeuronAttentionBackendImpl(AttentionImpl):
         kv_cache_dtype: str,
         blocksparse_params: Optional[Dict[str, Any]] = None,
         logits_soft_cap: Optional[float] = None,
+        attn_type: Optional[str] = AttentionType.DECODER,
     ) -> None:
         self.num_heads = num_heads
         self.head_size = head_size
@@ -226,8 +227,6 @@ class NeuronAttentionBackendImpl(AttentionImpl):
         attn_metadata: NeuronAttentionMetadata,
         k_scale: float = 1.0,
         v_scale: float = 1.0,
-        attn_type: str = AttentionType.DECODER,
-        output: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward pass with Neuron attention.
 
@@ -248,11 +247,6 @@ class NeuronAttentionBackendImpl(AttentionImpl):
             shape = [batch_size, seq_len, num_heads * head_size]
         """
         assert k_scale == 1.0 and v_scale == 1.0
-        if attn_type != AttentionType.DECODER:
-            raise NotImplementedError("Encoder self-attention and "
-                                      "encoder/decoder cross-attention "
-                                      "are not implemented for "
-                                      "NeuronAttentionBackendImpl")
         batch_size, seq_len, hidden_size = query.shape
         query = query.view(batch_size, seq_len, self.num_heads, self.head_size)
         key = key.view(batch_size, seq_len, self.num_kv_heads, self.head_size)
