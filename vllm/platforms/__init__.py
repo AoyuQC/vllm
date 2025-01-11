@@ -110,8 +110,12 @@ def cpu_platform_plugin() -> Optional[str]:
 
     return "vllm.platforms.cpu.CpuPlatform" if is_cpu else None
 
-
 def neuron_platform_plugin() -> Optional[str]:
+
+    # HACK AOYU, set to neuron v1 platform for debuging purpose
+    is_neuron_v1 = True
+    return "vllm.platforms.neuron_v1.NeuronPlatform"
+
     is_neuron = False
     try:
         import transformers_neuronx  # noqa: F401

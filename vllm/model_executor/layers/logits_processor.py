@@ -103,8 +103,10 @@ class LogitsProcessor(nn.Module):
             # None may be returned for rank > 0
             logits = tensor_model_parallel_gather(logits)
         # Remove paddings in vocab (if any).
-        if logits is not None:
-            logits = logits[..., :self.org_vocab_size]
+        # HACK AOYU remove logits slice in logits_processor.py/LogitsProcessor
+        # Remove paddings in vocab (if any).
+        # if logits is not None:
+        #     logits = logits[..., :self.org_vocab_size]
         return logits
 
     def extra_repr(self) -> str:

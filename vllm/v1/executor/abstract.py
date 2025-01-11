@@ -10,6 +10,7 @@ from vllm.executor.uniproc_executor import (  # noqa
     UniProcExecutor as UniProcExecutorV0)
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
+from vllm.platforms import current_platform
 
 
 class Executor(ExecutorBase):
@@ -42,6 +43,10 @@ class Executor(ExecutorBase):
             # TODO: make v1 scheduling deterministic
             # to support external launcher
             executor_class = ExecutorWithExternalLauncher
+        # TODO(AOYU): move neuron v1 to external_launcher
+        elif current_platform.is_neuron_v1():
+            from vllm.v1.executor.neuron_executor import NeuronExecutor
+            executor_class = NeuronExecutor
         else:
             raise ValueError("Unknown distributed executor backend: "
                              f"{distributed_executor_backend}")

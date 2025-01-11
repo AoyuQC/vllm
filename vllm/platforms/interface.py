@@ -34,6 +34,8 @@ class _Backend(enum.Enum):
     PALLAS = enum.auto()
     IPEX = enum.auto()
     BLOCK_SPARSE_FLASH_ATTN = enum.auto()
+    # TODO(aoyu), support both for neuron (v0) and neuron_v1
+    NEURON_ATTN_V1 = enum.auto()
     NO_ATTENTION = enum.auto()
 
 
@@ -48,6 +50,8 @@ class PlatformEnum(enum.Enum):
     OPENVINO = enum.auto()
     OOT = enum.auto()
     UNSPECIFIED = enum.auto()
+    # HACK AOYU, only for debug purpose
+    NEURON_V1 = enum.auto()
 
 
 class CpuArchEnum(enum.Enum):
@@ -125,6 +129,10 @@ class Platform:
 
     def is_neuron(self) -> bool:
         return self._enum == PlatformEnum.NEURON
+
+    # HACK AOYU, set to neuron v1 platform for debuging purpose
+    def is_neuron_v1(self) -> bool:
+        return self._enum == PlatformEnum.NEURON_V1
 
     def is_openvino(self) -> bool:
         return self._enum == PlatformEnum.OPENVINO
