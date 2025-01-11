@@ -47,6 +47,13 @@ class FatreluAndMul(CustomOp):
         self.op(out, x, self.threshold)
         return out
 
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        d = x.shape[-1] // 2
+        x1 = x[..., :d]
+        x2 = x[..., d:]
+        x1 = F.threshold(x1, self.threshold, 0.0)
+        return x1 * x2
+
 
 @CustomOp.register("silu_and_mul")
 class SiluAndMul(CustomOp):
@@ -85,6 +92,13 @@ class SiluAndMul(CustomOp):
         out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
         self.op(out, x)
         return out
+
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        d = x.shape[-1] // 2
+        # HACK AOYU use F.sigmoid to replace F.silu in layers/activations.py SiluAndMul, forward_native 
+        return F.sigmoid(x[..., :d]) * x[..., d:]
+        # return F.silu(x[..., :d]) * x[..., d:]
 
 
 @CustomOp.register("gelu_and_mul")
@@ -134,6 +148,11 @@ class GeluAndMul(CustomOp):
         self.op(out, x)
         return out
 
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        d = x.shape[-1] // 2
+        return F.gelu(x[..., :d], approximate=self.approximate) * x[..., d:]
+
     def extra_repr(self) -> str:
         return f'approximate={repr(self.approximate)}'
 
@@ -163,6 +182,12 @@ class NewGELU(CustomOp):
     def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
         return self.op(x)
 
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        c = math.sqrt(2.0 / math.pi)
+        return 0.5 * x * (1.0 + torch.tanh(c *
+                                           (x + 0.044715 * torch.pow(x, 3.0))))
+
 
 @CustomOp.register("gelu_fast")
 class FastGELU(CustomOp):
@@ -187,6 +212,11 @@ class FastGELU(CustomOp):
 
     def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
         return self.op(x)
+
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        return 0.5 * x * (1.0 + torch.tanh(x * 0.7978845608 *
+                                           (1.0 + 0.044715 * x * x)))
 
 
 @CustomOp.register("quick_gelu")
@@ -214,6 +244,10 @@ class QuickGELU(CustomOp):
         self.op(out, x)
         return out
 
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        return x * torch.sigmoid(1.702 * x)
+
     # TODO implement forward_xpu for QuickGELU
     # def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
 
@@ -230,6 +264,10 @@ class ReLUSquaredActivation(CustomOp):
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward_native(x)
+
+    def forward_neuron(self, x: torch.Tensor) -> torch.Tensor:
+        """PyTorch-native implementation equivalent to forward()."""
+        return torch.square(F.relu(x))
 
 
 class ScaledActivation(nn.Module):
