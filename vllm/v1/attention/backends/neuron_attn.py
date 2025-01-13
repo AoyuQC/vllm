@@ -254,12 +254,19 @@ class NeuronAttentionBackendImpl(AttentionImpl):
                            self.head_size)
         
 
+        # print(f"key is {key}")
+        # print(key.shape)
+        # print(f"self.heads {self.num_heads}")
         if kv_cache[0].numel() > 0:
             slot_mapping = attn_metadata.slot_mapping
             key_cache, value_cache = kv_cache
             write_to_kv_cache(key, value, key_cache, value_cache, slot_mapping)
+            # write_to_cache(key, key_cache, slot_mapping)
+            # write_to_cache(value, value_cache, slot_mapping)
+        # FIXME: not sure whether it's helpful
+        # kv_cache = torch.stack((key_cache, value_cache))
 
-        query = query * self.scale
+        # query = query * self.scale
         pad_dims = (
             0,
             B_P_SIZE - query.shape[3],
@@ -300,6 +307,9 @@ class NeuronAttentionBackendImpl(AttentionImpl):
         # - o: shape (bs, n_heads, seq_q, d) -> (bs, seq_q, n_heads, d)
         out = out.permute(
             0, 2, 1, 3)[:, :seq_len, :, :self.head_size]
+        # out = q
+        # out = out.permute(
+        #     0, 3, 1, 2)[:, :seq_len, :, :self.head_size]
         # out = out[:,:,:seq_len,:self.head_size]
         # out = out.permute(0, 2, 1, 3).contiguous()
         # output.append(out)
@@ -523,6 +533,17 @@ def write_to_kv_cache(
     value_cache = value_cache.flatten(0, 2)
     key_cache.index_copy_(0, slot_mapping, key)
     value_cache.index_copy_(0, slot_mapping, value)
+
+# def write_to_cache(
+#     number: torch.Tensor,
+#     cache: torch.Tensor,
+#     slot_mapping: torch.Tensor,
+# ) -> None:
+#     torch.ops.xla.dynamo_set_buffer_donor_(cache, True)
+
+#     number = number.flatten(0, 2)
+#     cache = cache.flatten(0, 2)
+#     cache.index_copy_(0, slot_mapping, number)
 
 
 def paged_attention(

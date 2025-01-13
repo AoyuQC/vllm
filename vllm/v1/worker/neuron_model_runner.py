@@ -25,6 +25,49 @@ import torch_xla.runtime as xr
 from unittest.mock import patch
 from vllm.config import set_current_vllm_config
 
+@dataclass
+class NeuronInputData:
+    token_ids: Optional[torch.Tensor] = None
+    position_ids: Optional[torch.Tensor] = None
+    query_lens: List[int] = None
+    seq_lens: List[int] = None
+    attn_metadata: NeuronAttentionMetadata = None
+
+class FakeModelWrapper(TorchCompileWrapperWithCustomDispatcher):
+
+    def __init__(self, model: nn.Module):
+        self.model = model
+        compiled_callable = torch.compile(self.forward,
+                                          backend="openxla",
+                                          fullgraph=False,
+                                          dynamic=False)
+        super().__init__(compiled_callable)
+
+    # HACK AOYU bypass compiled number check
+    def __call__(self, *args, **kwargs):
+        return self.compiled_callable(*args, **kwargs)
+
+    def forward(
+        self,
+        attn_metadata: NeuronAttentionMetadata,
+        kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Executes the forward pass of the model and samples the next token.
+
+        Args:
+            token_ids: The input token IDs of shape [batch_size, seq_len].
+            position_ids: The input position IDs of shape [batch_size, seq_len].
+            attn_metadata: The Neuron attention metadata.
+            kv_caches: The key and value caches. They can be None during the
+                memory profiling at initialization.
+        """
+
+        self.model(
+            kv_caches,
+            attn_metadata,
+        )
+
+
 if TYPE_CHECKING:
     from vllm.v1.core.scheduler import SchedulerOutput
 
@@ -637,13 +680,18 @@ class NeuronModelRunner:
         token_ids = torch.flatten(token_ids).unsqueeze(0).to(self.device)
         positions = positions.unsqueeze(0).to(self.device)
 
+        # slot_mapping = torch.tensor(range(num_tokens)).repeat_interleave(self.num_kv_heads).reshape(-1, self.num_kv_heads)
+        # slot_mapping = slot_mapping*self.num_kv_heads + torch.arange(0, self.num_kv_heads)
+        # slot_mapping = slot_mapping.flatten()
+        # slot_mapping = slot_mapping.to(device=self.device).long()
+
         return NeuronInputData(
             token_ids=token_ids,
             position_ids=positions,
             query_lens=query_lens,
             seq_lens=seq_lens,
             attn_metadata=NeuronAttentionMetadata(
-            slot_mapping=slot_mapping.to(self.device),
+            slot_mapping=slot_mapping.to(device=self.device),
             block_tables=block_table.to(self.device),
             context_lens=context_lens.to(self.device),
             active_block_table=active_block_table.to(torch.int32).to(self.device),
@@ -717,6 +765,7 @@ class NeuronModelRunner:
                                         neuron_input_data.position_ids,
                                         neuron_input_data.attn_metadata,
                                         self.kv_caches)
+        # print(f"first {self.kv_caches[0][0][0][:5]}")
         # NOTE: TPU<>CPU sync happens here.
         # We need to call .cpu() first to avoid recompilation.
         token_ids = selected_token_ids.cpu()
@@ -727,6 +776,37 @@ class NeuronModelRunner:
         # UPDATE REQUEST STATE.
         b_seq_start_loc = torch.cumsum(torch.tensor([0] + neuron_input_data.seq_lens[:-1],
                                                     dtype=torch.long),dim=0)
+        # num_tokens = scheduler_output.num_scheduled_tokens['0']
+        # head_size = self.head_size
+        # num_kv_heads = self.num_kv_heads
+
+        # kv = torch.empty(1, num_tokens, 2, num_kv_heads, head_size, dtype=torch.float, device=self.device)
+        # kv.uniform_(-1,1)
+        # key, value = kv.unbind(dim=2)
+        # def update_cache(
+        #     key: torch.Tensor,
+        #     key_cache: torch.Tensor,
+        #     slot_mapping: torch.Tensor,
+        # ) -> None:
+        #     torch.ops.xla.dynamo_set_buffer_donor_(key_cache, True)
+
+        #     key = key.flatten(0, 2)
+        #     key_cache = key_cache.flatten(0, 2)
+        #     key_cache.index_copy_(0, slot_mapping, key)
+        # update_cache_callable = torch.compile(update_cache,
+        #                                     backend="openxla",
+        #                                     fullgraph=False,
+        #                                     dynamic=False)
+        # key_cache, value_cache = self.kv_caches[0]
+        # print(f"first {key_cache[0][:5]}")
+        # print('****************************************************************************************************')
+        # update_cache_callable(key, key_cache, neuron_input_data.attn_metadata.slot_mapping)
+        # print(f"second {key_cache[0][:5]}")
+        # print('****************************************************************************************************')
+
+        # update_cache(key, self.kv_caches[0][0], neuron_input_data.attn_metadata.slot_mapping)
+        # print(f"third {self.kv_caches[0][0][0][:5]}")
+        # print('****************************************************************************************************')
 
         current_output_scheduled_token_offset = 0
         for i, req_id in enumerate(
@@ -865,6 +945,20 @@ class NeuronModelRunner:
         xm.wait_device_ops()
         with set_current_vllm_config(self.vllm_config):
             self.model = ModelWrapper(model)
+            # def update_cache(
+            #     key: torch.Tensor,
+            #     key_cache: torch.Tensor,
+            #     slot_mapping: torch.Tensor,
+            # ) -> None:
+            #     torch.ops.xla.dynamo_set_buffer_donor_(key_cache, True)
+
+            #     key = key.flatten(0, 2)
+            #     key_cache = key_cache.flatten(0, 2)
+            #     key_cache.index_copy_(0, slot_mapping, key)
+            # self.update_cache_callable = torch.compile(update_cache,
+            #                                     backend="openxla",
+            #                                     fullgraph=False,
+            #                                     dynamic=False)
 
     def _dummy_run(self, batch_size: int, seq_len: int,
                    kv_caches: List[torch.Tensor], is_prompt: bool) -> None:

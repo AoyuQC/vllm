@@ -17,7 +17,7 @@ from vllm.config import CompilationLevel
 from vllm import LLM, SamplingParams
 
 prompts = [
-    "A girl",
+    "Girl",
 ]
 answers = [
     " or, through inaction, allow a human being to come to harm.",
@@ -46,8 +46,8 @@ sampling_params = SamplingParams(temperature=0.7,
 # all the control
 llm = LLM(model="TinyLlama/TinyLlama_v1.1",
             enforce_eager=True,
-            block_size=128,
-            compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
+            block_size=128)
+            # compilation_config={"level": CompilationLevel.DYNAMO_AS_IS})
 outputs = llm.generate(prompts, sampling_params)
 for output, answer in zip(outputs, answers):
     prompt = output.prompt

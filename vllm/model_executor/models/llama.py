@@ -200,8 +200,13 @@ class LlamaAttention(nn.Module):
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
+        print(f"!!!!!!!qkv is {qkv} with shape {qkv.shape}")
+        print(f"!!!!!!!q size is {self.q_size}")
+        print(f"!!!!!!!kv size is {self.kv_size}")
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        print(f"k after split is {k}")
         q, k = self.rotary_emb(positions, q, k)
+        print(f"k after rotary is {k}")
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
         output, _ = self.o_proj(attn_output)
         return output
@@ -282,7 +287,6 @@ class LlamaDecoderLayer(nn.Module):
             hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
-
 
 @support_torch_compile
 class LlamaModel(nn.Module):
@@ -410,6 +414,12 @@ class LlamaModel(nn.Module):
                 if is_pp_missing_parameter(name, self):
                     continue
 
+                # # HACK AOYU, for quick compile debug
+                # name_type = name.split('.')[0]
+                # func_type = '.'.join(name.split('.')[2:])
+                # if name_type == 'layers':
+                #     name = name_type+'.0.'+func_type
+
                 param = params_dict[name]
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
@@ -425,6 +435,12 @@ class LlamaModel(nn.Module):
 
                 if is_pp_missing_parameter(name, self):
                     continue
+
+                # # HACK AOYU, for quick compile debug
+                # name_type = name.split('.')[0]
+                # func_type = '.'.join(name.split('.')[2:])
+                # if name_type == 'layers':
+                #     name = name_type+'.0.'+func_type
 
                 param = params_dict[name]
                 weight_loader = getattr(param, "weight_loader",
