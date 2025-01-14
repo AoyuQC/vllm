@@ -593,7 +593,7 @@ class NeuronModelRunner:
             num_scheduled_tokens.append(num_tokens)
         positions = torch.concat(positions_list, dim=1).squeeze(0)
         slot_mapping = torch.concat(slot_mapping_list, dim=1).squeeze(0).long()
-        token_ids = torch.concat(token_ids_list, dim=1).squeeze(0)
+        token_ids = torch.concat(token_ids_list, dim=1)
         
         ctx_lens = list(context_lens)
         query_lens = num_scheduled_tokens

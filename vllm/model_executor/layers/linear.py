@@ -373,7 +373,6 @@ class ColumnParallelLinear(LinearBase):
     def forward(self, input_):
         bias = self.bias if not self.skip_bias_add else None
 
-        print(f"input is {input}")
         # Matrix multiply.
         assert self.quant_method is not None
         output_parallel = self.quant_method.apply(self, input_, bias)
@@ -383,7 +382,6 @@ class ColumnParallelLinear(LinearBase):
         else:
             output = output_parallel
         output_bias = self.bias if self.skip_bias_add else None
-        print(f"output is {output}")
         return output, output_bias
 
     def extra_repr(self) -> str:
