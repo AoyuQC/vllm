@@ -247,7 +247,9 @@ class NeuronAttentionBackendImpl(AttentionImpl):
             shape = [batch_size, seq_len, num_heads * head_size]
         """
         assert k_scale == 1.0 and v_scale == 1.0
-        batch_size, seq_len, hidden_size = query.shape
+        batch_size = 1
+        seq_len, hidden_size = query.shape
+        # print(f"hidden size is {hidden_size}")
         query = query.view(batch_size, seq_len, self.num_heads, self.head_size)
         key = key.view(batch_size, seq_len, self.num_kv_heads, self.head_size)
         value = value.view(batch_size, seq_len, self.num_kv_heads,
@@ -350,7 +352,7 @@ class NeuronAttentionBackendImpl(AttentionImpl):
         #     output.append(out)
         # Reshape the output tensor.
         # output = torch.cat(output, dim=0)
-        return out.reshape(batch_size, seq_len, hidden_size)
+        return out.reshape(seq_len, hidden_size)
         # if attn_metadata.num_prefills > 0:
         if attn_metadata.is_prompt is True:
             # if attn_metadata.block_tables is None:

@@ -593,7 +593,7 @@ class NeuronModelRunner:
             num_scheduled_tokens.append(num_tokens)
         positions = torch.concat(positions_list, dim=1).squeeze(0)
         slot_mapping = torch.concat(slot_mapping_list, dim=1).squeeze(0).long()
-        token_ids = torch.concat(token_ids_list, dim=1)
+        token_ids = torch.concat(token_ids_list, dim=1).unsqueeze(0)
         
         ctx_lens = list(context_lens)
         query_lens = num_scheduled_tokens
@@ -677,7 +677,7 @@ class NeuronModelRunner:
             dim=1,
         )
 
-        token_ids = torch.flatten(token_ids).unsqueeze(0).to(self.device)
+        token_ids = torch.flatten(token_ids).to(self.device)
         positions = positions.unsqueeze(0).to(self.device)
 
         # slot_mapping = torch.tensor(range(num_tokens)).repeat_interleave(self.num_kv_heads).reshape(-1, self.num_kv_heads)
@@ -1452,7 +1452,8 @@ class ModelWrapper(TorchCompileWrapperWithCustomDispatcher):
             kv_caches,
             attn_metadata,
         )
-        hidden_states = hidden_states.flatten(0, 1)
+        # hidden_states = hidden_states.flatten(0, 1)
+        # print(f"hidden states with shape {hidden_states.shape}")
         logits = self.model.compute_logits(hidden_states, None)
 
         # Greedy sampling.
