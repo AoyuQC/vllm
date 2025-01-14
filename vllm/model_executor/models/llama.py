@@ -203,8 +203,20 @@ class LlamaAttention(nn.Module):
         # print(f"!!!!!!!qkv is {qkv} with shape {qkv.shape}")
         # print(f"!!!!!!!q size is {self.q_size}")
         # print(f"!!!!!!!kv size is {self.kv_size}")
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        print(f"k after split is {k}")
+        # HACK not use split for correctness
+        # q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        q_start_slice = 0
+        q_end_slice = self.q_size
+        k_start_slice = q_end_slice
+        k_end_slice = k_start_slice + self.kv_size
+        v_start_slice = k_end_slice
+        v_end_slice = v_start_slice + self.kv_size
+        q = qkv[:,q_start_slice:q_end_slice]
+        k = qkv[:,k_start_slice:k_end_slice]
+        v = qkv[:,v_start_slice:v_end_slice]
+        # print(f"qkv slice is {qkv[:,2048:2148]}")
+        # print(f"k after split is {k}")
+        # print(f"v after split is {v}")
         q, k = self.rotary_emb(positions, q, k)
         # print(f"k after rotary is {k}")
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
@@ -349,7 +361,7 @@ class LlamaModel(nn.Module):
         intermediate_tensors: Optional[IntermediateTensors],
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, IntermediateTensors]:
-        print(f"input_ids is {input_ids} with shape {input_ids.shape}")
+        # print(f"input_ids is {input_ids} with shape {input_ids.shape}")
         if get_pp_group().is_first_rank:
             if inputs_embeds is not None:
                 hidden_states = inputs_embeds
