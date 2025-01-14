@@ -200,13 +200,13 @@ class LlamaAttention(nn.Module):
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
-        print(f"!!!!!!!qkv is {qkv} with shape {qkv.shape}")
-        print(f"!!!!!!!q size is {self.q_size}")
-        print(f"!!!!!!!kv size is {self.kv_size}")
+        # print(f"!!!!!!!qkv is {qkv} with shape {qkv.shape}")
+        # print(f"!!!!!!!q size is {self.q_size}")
+        # print(f"!!!!!!!kv size is {self.kv_size}")
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-        print(f"k after split is {k}")
+        # print(f"k after split is {k}")
         q, k = self.rotary_emb(positions, q, k)
-        print(f"k after rotary is {k}")
+        # print(f"k after rotary is {k}")
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
         output, _ = self.o_proj(attn_output)
         return output
@@ -277,6 +277,7 @@ class LlamaDecoderLayer(nn.Module):
         else:
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
+        print(f"hidden states {hidden_states}, with shape {hidden_states.shape}")
         hidden_states = self.self_attn(positions=positions,
                                        hidden_states=hidden_states,
                                        kv_cache=kv_cache,
