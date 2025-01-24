@@ -21,6 +21,7 @@ from vllm.v1.core.scheduler import SchedulerOutput
 from vllm.v1.kv_cache_interface import KVCacheConfig, KVCacheSpec
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
+from .worker_base import WorkerBase
 
 logger = init_logger(__name__)
 
@@ -28,8 +29,9 @@ if TYPE_CHECKING:
     from vllm.v1.core.scheduler import SchedulerOutput
 
 
-class Worker:
-
+class Worker(WorkerBase):
+    """GPU-specific worker implementation."""
+    
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -38,46 +40,55 @@ class Worker:
         distributed_init_method: str,
         is_driver_worker: bool = False,
     ):
-
-        # TODO: use WorkerBase.__init__(self, vllm_config=vllm_config)
-        self.vllm_config = vllm_config
-        self.model_config = vllm_config.model_config
-        self.cache_config = vllm_config.cache_config
-        self.lora_config = vllm_config.lora_config
-        self.load_config = vllm_config.load_config
-        self.parallel_config = vllm_config.parallel_config
-        self.scheduler_config = vllm_config.scheduler_config
-        self.device_config = vllm_config.device_config
-        self.speculative_config = vllm_config.speculative_config
-        self.prompt_adapter_config = vllm_config.prompt_adapter_config
-        self.observability_config = vllm_config.observability_config
-
-        self.parallel_config.rank = rank
-        self.local_rank = local_rank
-        self.rank = rank
-        self.distributed_init_method = distributed_init_method
-
+        super().__init__(
+            vllm_config=vllm_config,
+            local_rank=local_rank,
+            rank=rank,
+            distributed_init_method=distributed_init_method,
+            is_driver_worker=is_driver_worker,
+        )
+        
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
             init_cached_hf_modules()
 
-        # Torch profiler. Enabled and configured through env vars:
-        # VLLM_TORCH_PROFILER_DIR=/path/to/save/trace
-        if envs.VLLM_TORCH_PROFILER_DIR:
-            torch_profiler_trace_dir = envs.VLLM_TORCH_PROFILER_DIR
-            logger.info("Profiling enabled. Traces will be saved to: %s",
-                        torch_profiler_trace_dir)
-            self.profiler = torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA,
-                ],
-                with_stack=True,
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                    torch_profiler_trace_dir, use_gzip=True))
+        self.device = None
+        self.model_runner = None
+        self.init_gpu_memory = None
+
+    def init_device(self) -> None:
+        # Initialize GPU device
+        if self.device_config.device.type == "cuda":
+            self._init_cuda_environment()
+            self.device = torch.device(f"cuda:{self.local_rank}")
+            torch.cuda.set_device(self.device)
+            
+            _check_if_gpu_supports_dtype(self.model_config.dtype)
+            self._clean_gpu_memory()
+            self.init_gpu_memory = torch.cuda.mem_get_info()[0]
         else:
-            self.profiler = None
+            raise RuntimeError(f"Unsupported device type: {self.device_config.device}")
+
+        # Initialize distributed environment and model runner
+        init_worker_distributed_environment(
+            self.parallel_config, 
+            self.rank,
+            self.distributed_init_method, 
+            self.local_rank
+        )
+        set_random_seed(self.model_config.seed)
+        self.model_runner = GPUModelRunner(self.vllm_config, self.device)
+
+    def _init_cuda_environment(self) -> None:
+        """Initialize CUDA-specific environment variables."""
+        os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
+        os.environ.pop("NCCL_ASYNC_ERROR_HANDLING", None)
+
+    def _clean_gpu_memory(self) -> None:
+        """Clean up GPU memory."""
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def sleep(self, level: int = 1) -> None:
         free_bytes_before_sleep = torch.cuda.mem_get_info()[0]
@@ -95,38 +106,6 @@ class Worker:
     def wake_up(self) -> None:
         allocator = CuMemAllocator.get_instance()
         allocator.wake_up()
-
-    def init_device(self):
-        if self.device_config.device.type == "cuda":
-            # torch.distributed.all_reduce does not free the input tensor until
-            # the synchronization point. This causes the memory usage to grow
-            # as the number of all_reduce calls increases. This env var disables
-            # this behavior.
-            # Related issue:
-            # https://discuss.pytorch.org/t/cuda-allocation-lifetime-for-inputs-to-distributed-all-reduce/191573
-            os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
-
-            # This env var set by Ray causes exceptions with graph building.
-            os.environ.pop("NCCL_ASYNC_ERROR_HANDLING", None)
-            self.device = torch.device(f"cuda:{self.local_rank}")
-            torch.cuda.set_device(self.device)
-
-            _check_if_gpu_supports_dtype(self.model_config.dtype)
-            gc.collect()
-            torch.cuda.empty_cache()
-            self.init_gpu_memory = torch.cuda.mem_get_info()[0]
-        else:
-            raise RuntimeError(
-                f"Not support device type: {self.device_config.device}")
-        # Initialize the distributed environment.
-        init_worker_distributed_environment(self.parallel_config, self.rank,
-                                            self.distributed_init_method,
-                                            self.local_rank)
-        # Set random seed.
-        set_random_seed(self.model_config.seed)
-
-        # Construct the model runner
-        self.model_runner = GPUModelRunner(self.vllm_config, self.device)
 
     def load_model(self) -> None:
         if self.vllm_config.model_config.enable_sleep_mode:
