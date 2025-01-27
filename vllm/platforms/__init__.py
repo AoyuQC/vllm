@@ -113,8 +113,17 @@ def cpu_platform_plugin() -> Optional[str]:
 def neuron_platform_plugin() -> Optional[str]:
 
     # HACK AOYU, set to neuron v1 platform for debuging purpose
+    # FIXME AOYU, not set neuron when it's cuda platform
+    func = builtin_platform_plugins['cuda']
     is_neuron_v1 = True
-    return "vllm.platforms.neuron_v1.NeuronPlatform"
+    try:
+        assert callable(func)
+        platform_cls_qualname = func()
+        if platform_cls_qualname is not None:
+            is_neuron_v1 = False
+    except Exception:
+        pass
+    return "vllm.platforms.neuron_v1.NeuronPlatform" if is_neuron_v1 else None
 
     is_neuron = False
     try:

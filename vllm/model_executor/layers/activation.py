@@ -99,8 +99,18 @@ class SiluAndMul(CustomOp):
         """PyTorch-native implementation equivalent to forward()."""
         d = x.shape[-1] // 2
         # HACK AOYU use F.sigmoid to replace F.silu in layers/activations.py SiluAndMul, forward_native 
-        return F.sigmoid(x[..., :d]) * x[..., d:]
-        # return F.silu(x[..., :d]) * x[..., d:]
+        return F.sigmoid(x[..., :d]) * x[..., :d] * x[..., d:]
+        # # return F.silu(x[..., :d]) * x[..., d:]
+        # d = x.shape[-1] // 2
+        # # s = F.silu(x[:, :, :d]) 
+        # if len(x.shape) == 3:
+        #     s = x[:, :, :d] * torch.nn.functional.sigmoid(x[:, :, :d])
+        #     return s * x[:, :, d:]
+        # elif len(x.shape) == 2:
+        #     s = x[:, :d] * torch.nn.functional.sigmoid(x[:, :d])
+        #     return s * x[ :, d:]
+        # else:
+        #     raise NotImplementedError("Expected input to have either 3 or 2 dims")
 
 
 @CustomOp.register("mul_and_silu")

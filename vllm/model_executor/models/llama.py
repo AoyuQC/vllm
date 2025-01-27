@@ -195,11 +195,48 @@ class LlamaAttention(nn.Module):
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
-        qkv, _ = self.qkv_proj(hidden_states)
-        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        # qkv, _ = self.qkv_proj(hidden_states)
+        # # print(f"!!!!!!!qkv is {qkv} with shape {qkv.shape}")
+        # # print(f"!!!!!!!q size is {self.q_size}")
+        # # print(f"!!!!!!!kv size is {self.kv_size}")
+        # # HACK not use split for correctness
+        # # q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        # q_start_slice = 0
+        # q_end_slice = self.q_size
+        # k_start_slice = q_end_slice
+        # k_end_slice = k_start_slice + self.kv_size
+        # v_start_slice = k_end_slice
+        # v_end_slice = v_start_slice + self.kv_size
+        # q = qkv[:,q_start_slice:q_end_slice]
+        # k = qkv[:,k_start_slice:k_end_slice]
+        # v = qkv[:,v_start_slice:v_end_slice]
+        # # print(f"qkv slice is {qkv[:,2048:2148]}")
+        # # print(f"k after split is {k}")
+        # # print(f"v after split is {v}")
+        # q, k = self.rotary_emb(positions, q, k)
+        # # print(f"q with dtype {q.dtype} is {q}")
+        # # print(f"k with dtype {k.dtype} is {k}")
+        # # print(f"v with dtype {v.dtype} is {v}")
+        if current_platform.is_neuron_v1():
+            # TODO(gnovack) - Figure out a better way to streamline QKV computation
+            w_q = self.qkv_proj.weight.t()[:, :self.q_size]
+            q =  torch.einsum('bsh,hq->bsq', hidden_states, w_q)
+            
+            w_k = self.qkv_proj.weight.t()[:, self.q_size:self.q_size+self.kv_size]
+            k =  torch.einsum('bsh,hk->bsk', hidden_states, w_k)
+            
+            w_v = self.qkv_proj.weight.t()[:, self.q_size+self.kv_size:self.q_size + (2*self.kv_size)]
+            v =  torch.einsum('bsh,hk->bsk', hidden_states, w_v)
+        else:
+            qkv, _ = self.qkv_proj(hidden_states)
+            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
         q, k = self.rotary_emb(positions, q, k)
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
         output, _ = self.o_proj(attn_output)
+        # print(f"attn_output with dtype {attn_output.dtype} is {attn_output}")
+        # print(f"attn_output[-1][:20] is {attn_output[-1][:20]}")
+        # print(f"output with dtype {output.dtype} is {output}")
+        # print(f"output[-1][:20] is {output[-1][:20]}")
         return output
 
 
@@ -274,6 +311,7 @@ class LlamaDecoderLayer(nn.Module):
         else:
             hidden_states, residual = self.input_layernorm(
                 hidden_states, residual)
+        # print(f"hidden states {hidden_states}, with shape {hidden_states.shape}")
         hidden_states = self.self_attn(positions=positions,
                                        hidden_states=hidden_states,
                                        kv_cache=kv_cache,
@@ -284,7 +322,6 @@ class LlamaDecoderLayer(nn.Module):
             hidden_states, residual)
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
-
 
 @support_torch_compile
 class LlamaModel(nn.Module):
@@ -347,6 +384,7 @@ class LlamaModel(nn.Module):
         intermediate_tensors: Optional[IntermediateTensors],
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, IntermediateTensors]:
+        # print(f"input_ids is {input_ids} with shape {input_ids.shape}")
         if get_pp_group().is_first_rank:
             if inputs_embeds is not None:
                 hidden_states = inputs_embeds
@@ -359,6 +397,7 @@ class LlamaModel(nn.Module):
             residual = intermediate_tensors["residual"]
 
         for i in range(self.start_layer, self.end_layer):
+            # print(f"layer {i}")
             layer = self.layers[i]
             hidden_states, residual = layer(positions, hidden_states,
                                             kv_caches[i - self.start_layer],
@@ -415,6 +454,12 @@ class LlamaModel(nn.Module):
                 if is_pp_missing_parameter(name, self):
                     continue
 
+                # # HACK AOYU, for quick compile debug
+                # name_type = name.split('.')[0]
+                # func_type = '.'.join(name.split('.')[2:])
+                # if name_type == 'layers':
+                #     name = name_type+'.0.'+func_type
+
                 param = params_dict[name]
                 weight_loader = param.weight_loader
                 weight_loader(param, loaded_weight, shard_id)
@@ -430,6 +475,12 @@ class LlamaModel(nn.Module):
 
                 if is_pp_missing_parameter(name, self):
                     continue
+
+                # # HACK AOYU, for quick compile debug
+                # name_type = name.split('.')[0]
+                # func_type = '.'.join(name.split('.')[2:])
+                # if name_type == 'layers':
+                #     name = name_type+'.0.'+func_type
 
                 param = params_dict[name]
                 weight_loader = getattr(param, "weight_loader",
@@ -545,6 +596,9 @@ class LlamaForCausalLM(nn.Module, SupportsLoRA, SupportsPP):
         hidden_states: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> Optional[torch.Tensor]:
+        # FIXME, aoyu compute logitis on device
+        if current_platform.is_neuron_v1():
+            self.lm_head = self.lm_head.cpu()
         logits = self.logits_processor(self.lm_head, hidden_states,
                                        sampling_metadata)
         return logits

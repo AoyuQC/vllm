@@ -661,6 +661,7 @@ def flash_attn_varlen_nkifunc(
     )
     _, n_kv_head, _, _ = key.shape
 
+
     if return_debug_tensors:
         o, *debug_tensors = flash_paged_attention[1, n_kv_head](**kwargs)
         return o, *debug_tensors

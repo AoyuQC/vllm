@@ -53,33 +53,37 @@ class NeuronPlatform(Platform):
 
     @classmethod
     def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
+        parallel_config = vllm_config.parallel_config
+        if parallel_config.worker_cls == "auto":
+            parallel_config.worker_cls = \
+                "vllm.worker.neuron_worker.NeuronWorker"
         from vllm.config import CompilationLevel
 
-        cache_config = vllm_config.cache_config
-        if cache_config and cache_config.block_size is None:
-            cache_config.block_size = 16
+        # cache_config = vllm_config.cache_config
+        # if cache_config and cache_config.block_size is None:
+        #     cache_config.block_size = 16
 
-        compilation_config = vllm_config.compilation_config
-        if compilation_config.level == CompilationLevel.NO_COMPILATION:
-            # TPU does not support NO_COMPILATION
-            compilation_config.level = CompilationLevel.DYNAMO_ONCE
-        assert compilation_config.level < CompilationLevel.PIECEWISE,\
-            "TPU does not support Inductor."
+        # compilation_config = vllm_config.compilation_config
+        # if compilation_config.level == CompilationLevel.NO_COMPILATION:
+        #     # TPU does not support NO_COMPILATION
+        #     compilation_config.level = CompilationLevel.DYNAMO_ONCE
+        # assert compilation_config.level < CompilationLevel.PIECEWISE,\
+        #     "TPU does not support Inductor."
 
-        if compilation_config.backend == "":
-            compilation_config.backend = "openxla"
+        # if compilation_config.backend == "":
+        #     compilation_config.backend = "openxla"
 
-        assert vllm_config.speculative_config is None, \
-            "TPU does not support speculative decoding"
+        # assert vllm_config.speculative_config is None, \
+        #     "TPU does not support speculative decoding"
 
-        parallel_config = vllm_config.parallel_config
-        scheduler_config = vllm_config.scheduler_config
-        if parallel_config.worker_cls == "auto":
-            if scheduler_config.is_multi_step:
-                parallel_config.worker_cls = \
-                    "vllm.worker.multi_step_tpu_worker.MultiStepTPUWorker"
-            else:
-                parallel_config.worker_cls = "vllm.worker.tpu_worker.TPUWorker"
+        # parallel_config = vllm_config.parallel_config
+        # scheduler_config = vllm_config.scheduler_config
+        # if parallel_config.worker_cls == "auto":
+        #     if scheduler_config.is_multi_step:
+        #         parallel_config.worker_cls = \
+        #             "vllm.worker.multi_step_tpu_worker.MultiStepTPUWorker"
+        #     else:
+        #         parallel_config.worker_cls = "vllm.worker.tpu_worker.TPUWorker"
 
     @classmethod
     def is_pin_memory_available(cls) -> bool:

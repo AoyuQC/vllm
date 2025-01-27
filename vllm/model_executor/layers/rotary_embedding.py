@@ -257,6 +257,41 @@ class RotaryEmbedding(CustomOp):
         key: torch.Tensor,
         offsets: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+            
+        # from torch_xla.core import xla_model as xm
+        # # TODO(gnovack) - handle edge cases
+        # if offsets is not None:
+        #     positions = positions + offsets
+        
+        # self.cos_sin_cache = self.cos_sin_cache.to(query.device,
+        #                                            dtype=query.dtype)
+
+        # positions = positions.flatten()
+        # num_tokens = positions.shape[0]
+        # cos_sin = self.cos_sin_cache.index_select(0, positions)
+        # cos, sin = cos_sin.chunk(2, dim=-1)
+
+        # query_shape = query.shape
+        # query = query.view(num_tokens, -1, self.head_size)
+
+        # if self.rotary_dim == self.head_size:
+        #     query = _apply_rotary_emb(query, cos, sin, self.is_neox_style)
+        #     query = query.reshape(query_shape)
+
+        # key_shape = key.shape
+        # key = key.view(num_tokens, -1, self.head_size)
+
+        # if self.rotary_dim == self.head_size:
+        #     key = _apply_rotary_emb(key, cos, sin, self.is_neox_style)
+        #     key = key.reshape(key_shape)
+        # else:
+        #     key_pass = key[..., self.rotary_dim:]
+        #     key_rot = key[..., :self.rotary_dim]
+        #     key_rot = _apply_rotary_emb(key_rot, cos, sin, self.is_neox_style)
+        #     key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
+        # return query, key
+
+
         """A PyTorch-native implementation of forward()."""
         if offsets is not None:
             positions = positions + offsets

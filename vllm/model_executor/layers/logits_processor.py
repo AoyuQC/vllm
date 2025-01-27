@@ -47,6 +47,7 @@ class LogitsProcessor(nn.Module):
 
         parallel_config = get_current_vllm_config().parallel_config
         self.use_all_gather = current_platform.is_tpu() \
+            or not current_platform.is_neuron_v1() \
             or envs.VLLM_USE_V1 \
             or parallel_config.distributed_executor_backend == "external_launcher" # noqa
 
