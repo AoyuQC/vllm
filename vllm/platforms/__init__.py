@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 from vllm.plugins import load_plugins_by_group
 from vllm.utils import resolve_obj_by_qualname
+import vllm.envs as envs
 
 from .interface import _Backend  # noqa: F401
 from .interface import CpuArchEnum, Platform, PlatformEnum
@@ -145,8 +146,10 @@ def neuron_platform_plugin() -> Optional[str]:
         is_neuron = True
     except ImportError:
         pass
-
-    return "vllm.platforms.neuron.NeuronPlatform" if is_neuron else None
+    if is_neuron or envs.VLLM_USE_V1:
+        return "vllm.platforms.neuron.NeuronPlatform"
+    else:
+        return None
 
 
 def openvino_platform_plugin() -> Optional[str]:

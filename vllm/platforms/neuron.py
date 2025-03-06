@@ -2,9 +2,11 @@
 
 from typing import TYPE_CHECKING, Optional
 
+import torch
+
 from vllm.logger import init_logger
 
-from .interface import Platform, PlatformEnum
+from .interface import Platform, PlatformEnum, _Backend
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -21,6 +23,18 @@ class NeuronPlatform(Platform):
     ray_device_key: str = "neuron_cores"
     supported_quantization: list[str] = ["neuron_quant"]
     device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
+
+    @classmethod
+    def get_attn_backend_cls(cls, selected_backend: _Backend, head_size: int,
+                             dtype: torch.dtype, kv_cache_dtype: Optional[str],
+                             block_size: int, use_v1: bool,
+                             use_mla: bool) -> str:
+        if selected_backend != _Backend.NEURON_VLLM_V1 and use_v1:
+            logger.info("Cannot use %s backend for VLLM v1 on Neuron.", selected_backend)
+
+        if use_v1:
+            logger.info("Using Neuron V1 backend.")
+            return "vllm.v1.attention.backends.neuron_attn.NeuronAttentionBackend"
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
