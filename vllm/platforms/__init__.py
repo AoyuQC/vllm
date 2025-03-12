@@ -141,12 +141,19 @@ def cpu_platform_plugin() -> Optional[str]:
 
 def neuron_platform_plugin() -> Optional[str]:
     is_neuron = False
+    is_neuron_v1 = False
     try:
         import transformers_neuronx  # noqa: F401
         is_neuron = True
     except ImportError:
         pass
-    if is_neuron or envs.VLLM_USE_V1:
+    try:
+        import torch_neuronx  # noqa: F401
+        if envs.VLLM_USE_V1:
+            is_neuron_v1 = True
+    except ImportError:
+        pass
+    if is_neuron or is_neuron_v1:
         return "vllm.platforms.neuron.NeuronPlatform"
     else:
         return None
