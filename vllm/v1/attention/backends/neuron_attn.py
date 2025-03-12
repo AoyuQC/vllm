@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 import torch
 
 from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
+                                              AttentionLayer,
                                               AttentionMetadataBuilder, AttentionType)
 from vllm.attention.backends.utils import CommonAttentionState
 
@@ -163,6 +164,7 @@ class NeuronAttentionBackendImpl(AttentionImpl):
     @torch.inference_mode()
     def forward(
         self,
+        layer: AttentionLayer,
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,

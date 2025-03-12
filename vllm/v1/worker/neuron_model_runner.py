@@ -1074,7 +1074,8 @@ class NeuronModelRunner:
         with torch.inference_mode():
             logger.info("Starting to load model %s...", self.model_config.model)
             model = get_model(vllm_config=self.vllm_config).eval().to(self.device)
-            self.model = torch.compile(model, backend="openxla", fullgraph=True, dynamic=False)
+            # self.model = torch.compile(model, backend="openxla", fullgraph=True, dynamic=False)
+            self.model = model
 
         # # NOTE(woosuk): While the executor assigns the TP ranks to the worker
         # # process, the ranks can be different from the ranks internally assigned
@@ -1284,11 +1285,11 @@ class NeuronModelRunner:
             num_blocks = tensor_config.size // layer_spec.page_size_bytes
             if isinstance(layer_spec, FullAttentionSpec):
                 kv_cache_shape = NeuronAttentionBackend.get_kv_cache_shape(
-                    num_blocks, layer_spec.block_size, layer_spec.num_kv_heads,
+                    num_blocks+1, layer_spec.block_size, layer_spec.num_kv_heads,
                     layer_spec.head_size)
                 cache = torch.zeros(kv_cache_shape,
                                 dtype=self.kv_cache_dtype,
-                                device='cpu')
+                                device=self.device)
                 kv_caches[layer_name] = cache
             else:
                 raise NotImplementedError
