@@ -434,12 +434,12 @@ llm = LLM(
     max_model_len=128,
     max_num_batched_tokens=128,
     block_size=128,
-    device="neuron",
+    # device="neuron",
     enforce_eager=True,
     tensor_parallel_size=1,
     disable_async_output_proc=True,
     enable_chunked_prefill=True,
-    worker_cls="vllm.v1.worker.neuron_worker.NeuronWorker"
+    # worker_cls="vllm.v1.worker.neuron_worker.NeuronWorker"
 )
 # Generate texts from the prompts. The output is a list of RequestOutput objects
 # that contain the prompt, generated text, and other information.
