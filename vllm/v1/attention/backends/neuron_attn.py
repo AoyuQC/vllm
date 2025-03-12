@@ -181,3 +181,21 @@ class NeuronAttentionBackendImpl(AttentionImpl[NeuronAttentionMetadata]):
                                   2).reshape(1, num_tokens,
                                              self.num_heads * self.head_size)
         return output
+<<<<<<< HEAD
+=======
+
+
+def write_to_kv_cache(
+    key: torch.Tensor,
+    value: torch.Tensor,
+    key_cache: torch.Tensor,
+    value_cache: torch.Tensor,
+    slot_mapping: torch.Tensor,
+) -> None:
+
+    key_cache = key_cache.flatten(0, 1)
+    value_cache = value_cache.flatten(0, 1)
+
+    key_cache.index_copy_(0, slot_mapping, key)
+    value_cache.index_copy_(0, slot_mapping, value)
+>>>>>>> 5bae4c91 ([Neuron][V1] experimental support for neuron backend with V1 architecture)
