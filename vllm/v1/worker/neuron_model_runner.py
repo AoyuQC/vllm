@@ -36,6 +36,40 @@ logger = init_logger(__name__)
 B_P_SIZE = 128
 LARGE_TILE_SZ = 2048
 INVALID_TOKEN_ID = -1
+# # debug configs for torch dynamo
+# import torch._dynamo.config
+# import logging
+# import os
+# from datetime import datetime
+
+# # Create logs directory if it doesn't exist
+# os.makedirs("logs", exist_ok=True)
+
+# # Create a file handler for the dynamo logs
+# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+# log_file = f"logs/dynamo_debug_{timestamp}.log"
+
+# # Configure the logger
+# dynamo_logger = logging.getLogger("torch._dynamo")
+# dynamo_logger.setLevel(logging.DEBUG)
+
+# # Create file handler
+# file_handler = logging.FileHandler(log_file)
+# file_handler.setLevel(logging.DEBUG)
+
+# # Create formatter and add it to the handler
+# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# file_handler.setFormatter(formatter)
+
+# # Add the handler to the logger
+# dynamo_logger.addHandler(file_handler)
+
+# # Enable verbose mode
+# torch._dynamo.config.verbose = True
+# torch._logging.set_logs(dynamo=logging.DEBUG)
+
+# print(f"Dynamo debug logs will be saved to: {log_file}")
+>>>>>>> 2e913f72 (qwen integration)
 
 
 def shift_bit_length(x):
@@ -646,33 +680,45 @@ class NeuronModelRunner:
             # TODO(woosuk): Avoid the copy. Optimize.
             self.inputs_embeds[:num_scheduled_tokens].copy_(inputs_embeds)
             inputs_embeds = self.inputs_embeds[:num_input_tokens]
+            inputs_embeds = inputs_embeds.unsqueeze(0)
             input_ids = None
         else:
             # For text-only models, we use token ids as input.
             input_ids = self.input_ids[:num_input_tokens]
             inputs_embeds = None
         if self.uses_mrope:
-            positions = self.mrope_positions[:, :num_input_tokens]
+            positions = self.mrope_positions[:,:num_input_tokens]
         else:
-            positions = self.positions[:num_input_tokens]
+            positions = self.positions[:num_input_tokens].unsqueeze(0)
 
         # Run the decoder.
         with set_forward_context(attn_metadata, self.vllm_config):
+            if input_ids is not None:
+                input_ids = input_ids.unsqueeze(0).to(self.device)
+            else:
+                input_ids = None
+            # print(f"!!!!!!!!!!!execute_model input_ids: {input_ids}")
+            # print(f"!!!!!!!!!!!embed_tokens.weight deivce: {self.model.model.embed_tokens.weight.device}")
             hidden_states = self.model(
-                input_ids=input_ids.unsqueeze(0).to(self.device),
-                positions=positions[:num_input_tokens].unsqueeze(0).to(
-                    self.device),
+                # input_ids=input_ids.unsqueeze(0).to(self.device),
+                input_ids=input_ids,
+                positions=positions.to(self.device),
                 intermediate_tensors=None,
                 inputs_embeds=inputs_embeds.to(self.device)
                 if inputs_embeds is not None else None,
-            ).cpu()
+            )
+            hidden_states = hidden_states.cpu()
         hidden_states = hidden_states[0, :num_scheduled_tokens]
         hidden_states = hidden_states[logits_indices.cpu()]
 
+        lm_head_original_device = None
         if hasattr(self.model, "lm_head"):
             # Compute logits on CPU
+            lm_head_original_device = self.model.lm_head.weight.device
             self.model.lm_head = self.model.lm_head.cpu()
         logits = self.model.compute_logits(hidden_states, None)
+        if lm_head_original_device is not None:
+            self.model.lm_head = self.model.lm_head.to(lm_head_original_device)
 
         # Sample the next token and get logprobs if needed.
         sampling_metadata = self.input_batch.sampling_metadata
@@ -746,6 +792,7 @@ class NeuronModelRunner:
                         self.model_config.model)
             model = get_model(vllm_config=self.vllm_config).eval().to(
                 self.device)
+            # self.model = model
             self.model = torch.compile(model,
                                        backend="openxla",
                                        fullgraph=True,
@@ -809,15 +856,23 @@ class NeuronModelRunner:
         if self.is_multimodal_model:
             input_ids = None
             inputs_embeds = self.inputs_embeds[:num_tokens]
+            inputs_embeds = inputs_embeds.unsqueeze(0)
         else:
             input_ids = self.input_ids[:num_tokens]
             inputs_embeds = None
         with set_forward_context(attn_metadata, self.vllm_config):
+            if input_ids is not None:
+                input_ids = input_ids.unsqueeze(0).to(self.device)
+            else:
+                input_ids = None
+            if self.uses_mrope:
+                positions = self.mrope_positions[:,:num_tokens]
+            else:
+                positions = self.positions[:num_tokens].unsqueeze(0)
+            print(f"!!!!!!!!!!!_dummy_run device is {self.device}, positions shape: {positions.shape} and num_tokens: {num_tokens}, input_ids shape: {input_ids.shape if input_ids is not None else None}, inputs_embeds shape: {inputs_embeds.shape if inputs_embeds is not None else None}")
             hidden_states = model(
-                input_ids=input_ids.unsqueeze(0).to(self.device)
-                if input_ids is not None else None,
-                positions=self.positions[:num_tokens].unsqueeze(0).to(
-                    self.device),
+                input_ids=input_ids,
+                positions=positions.to(self.device),
                 inputs_embeds=inputs_embeds.to(self.device)
                 if inputs_embeds is not None else None,
             )
@@ -825,7 +880,9 @@ class NeuronModelRunner:
 
     def profile_run(self) -> None:
         num_tokens = max(self.neuron_compilation_batch_sizes)
+        print(f"!!!!!!self.neuron_compilation_batch_sizes: {self.neuron_compilation_batch_sizes}")
         self._dummy_run(num_tokens)
+        print(f"!!!!!!!!!!!profile_run done")
 
     def capture_model(self) -> None:
 
