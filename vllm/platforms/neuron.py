@@ -91,7 +91,7 @@ class NeuronPlatform(Platform):
 
         # Disable functionalization on xla, due to https://github.com/pytorch/xla/issues/8640
         os.environ["XLA_DISABLE_FUNCTIONALIZATION"] = "0"
-        os.environ["NEURON_CC_FLAGS"] = " -O1 --model-type=transformer  "
+        os.environ["NEURON_CC_FLAGS"] = " -O1 --model-type=transformer --retry_failed_compilation "
 
     @classmethod
     def check_and_update_config_v0(cls, vllm_config: VllmConfig) -> None:

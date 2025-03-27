@@ -69,7 +69,6 @@ INVALID_TOKEN_ID = -1
 # torch._logging.set_logs(dynamo=logging.DEBUG)
 
 # print(f"Dynamo debug logs will be saved to: {log_file}")
->>>>>>> 2e913f72 (qwen integration)
 
 
 def shift_bit_length(x):
@@ -672,15 +671,23 @@ class NeuronModelRunner:
             # embeddings), we always use embeddings (rather than token ids)
             # as input to the multimodal model, even when the input is text.
             input_ids = self.input_ids[:num_scheduled_tokens]
+            # Move to device as a single tensor without unnecessary reshaping
+            input_ids = input_ids.to(self.device)
+            
             if encoder_outputs:
+                encoder_outputs = [out.to(self.device) for out in encoder_outputs]
+                # Get embeddings with input_ids as is (without unsqueeze)
                 inputs_embeds = self.model.get_input_embeddings(
                     input_ids, encoder_outputs)
             else:
+                # Get embeddings with input_ids as is (without unsqueeze)
                 inputs_embeds = self.model.get_input_embeddings(input_ids)
-            # TODO(woosuk): Avoid the copy. Optimize.
-            self.inputs_embeds[:num_scheduled_tokens].copy_(inputs_embeds)
+            
+            # Copy to CPU buffer to reduce device memory usage
+            self.inputs_embeds[:num_scheduled_tokens].copy_(inputs_embeds.cpu())
             inputs_embeds = self.inputs_embeds[:num_input_tokens]
-            inputs_embeds = inputs_embeds.unsqueeze(0)
+            # Only unsqueeze once before passing to model
+            inputs_embeds = inputs_embeds.unsqueeze(0).to(self.device)
             input_ids = None
         else:
             # For text-only models, we use token ids as input.
@@ -695,30 +702,28 @@ class NeuronModelRunner:
         with set_forward_context(attn_metadata, self.vllm_config):
             if input_ids is not None:
                 input_ids = input_ids.unsqueeze(0).to(self.device)
-            else:
-                input_ids = None
-            # print(f"!!!!!!!!!!!execute_model input_ids: {input_ids}")
-            # print(f"!!!!!!!!!!!embed_tokens.weight deivce: {self.model.model.embed_tokens.weight.device}")
             hidden_states = self.model(
-                # input_ids=input_ids.unsqueeze(0).to(self.device),
                 input_ids=input_ids,
                 positions=positions.to(self.device),
                 intermediate_tensors=None,
-                inputs_embeds=inputs_embeds.to(self.device)
-                if inputs_embeds is not None else None,
+                inputs_embeds=inputs_embeds,
             )
             hidden_states = hidden_states.cpu()
         hidden_states = hidden_states[0, :num_scheduled_tokens]
         hidden_states = hidden_states[logits_indices.cpu()]
 
         lm_head_original_device = None
-        if hasattr(self.model, "lm_head"):
+        if self.is_multimodal_model:
+            language_model = self.model.language_model
+        else:
+            language_model = self.model
+        if hasattr(language_model, "lm_head"):
             # Compute logits on CPU
-            lm_head_original_device = self.model.lm_head.weight.device
-            self.model.lm_head = self.model.lm_head.cpu()
+            lm_head_original_device = language_model.lm_head.weight.device
+            language_model.lm_head = language_model.lm_head.cpu()
         logits = self.model.compute_logits(hidden_states, None)
         if lm_head_original_device is not None:
-            self.model.lm_head = self.model.lm_head.to(lm_head_original_device)
+            language_model.lm_head = language_model.lm_head.to(lm_head_original_device)
 
         # Sample the next token and get logprobs if needed.
         sampling_metadata = self.input_batch.sampling_metadata
