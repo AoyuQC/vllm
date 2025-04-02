@@ -417,6 +417,11 @@ class NeuronModelRunner:
                arange,
                out=positions_np)
 
+        # Calculate M-RoPE positions.
+        # Only relevant for models using M-RoPE (e.g, Qwen2-VL)
+        if self.uses_mrope:
+            self._calc_mrope_positions(scheduler_output)
+
         # Get token indices.
         # E.g., [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]
         # -> [0, 1, M, M + 1, M + 2, M + 3, M + 4, 2 * M, 2 * M + 1, 2 * M + 2]
@@ -482,8 +487,19 @@ class NeuronModelRunner:
 
         self.input_ids[:total_num_scheduled_tokens].copy_(input_ids,
                                                           non_blocking=True)
-        self.positions[:total_num_scheduled_tokens].copy_(positions,
-                                                          non_blocking=True)
+        if self.uses_mrope:
+            # Only relevant for models using M-RoPE (e.g, Qwen2-VL)
+            self.mrope_positions[:, :total_num_scheduled_tokens].copy_(
+                self.mrope_positions_cpu[:, :total_num_scheduled_tokens],
+                non_blocking=True)
+        else:
+            # TODO: what's the difference between the two?
+            # Common case (1D positions)
+            self.positions[:total_num_scheduled_tokens].copy_(positions,
+                                                            non_blocking=True)
+            # self.positions[:total_num_scheduled_tokens].copy_(
+            #     self.positions_cpu[:total_num_scheduled_tokens],
+            #     non_blocking=True)
 
         seq_lens = torch.diff(seq_start_loc)
         query_lens = torch.diff(query_start_loc)
@@ -779,7 +795,7 @@ class NeuronModelRunner:
                 seq.tolist()
                 for seq in sampled_token_ids[valid_mask].split(gen_lens)
             ]
-
+        print(f"!!!!!!!!!!!valid_sampled_token_ids: {valid_sampled_token_ids}")
         model_runner_output = ModelRunnerOutput(
             req_ids=self.input_batch.req_ids,
             req_id_to_index=self.input_batch.req_id_to_index,
@@ -933,6 +949,59 @@ class NeuronModelRunner:
                 padded_size = ((size + B_P_SIZE - 1) // B_P_SIZE) * B_P_SIZE
                 return padded_size
         return None
+
+    def _calc_mrope_positions(self, scheduler_output: "SchedulerOutput"):
+        mrope_pos_ptr = 0
+        for index, req_id in enumerate(self.input_batch.req_ids):
+            req = self.requests[req_id]
+            assert req.mrope_positions is not None
+
+            num_computed_tokens = \
+                self.input_batch.num_computed_tokens_cpu[index]
+            num_scheduled_tokens = \
+                scheduler_output.num_scheduled_tokens[req_id]
+            num_prompt_tokens = len(req.prompt_token_ids)
+
+            if num_computed_tokens + num_scheduled_tokens > num_prompt_tokens:
+                prompt_part_len = max(0,
+                                      num_prompt_tokens - num_computed_tokens)
+                completion_part_len = max(
+                    0, num_scheduled_tokens - prompt_part_len)
+            else:
+                prompt_part_len = num_scheduled_tokens
+                completion_part_len = 0
+
+            assert num_scheduled_tokens == prompt_part_len + completion_part_len
+
+            if prompt_part_len > 0:
+                # prompt's mrope_positions are pre-computed
+                dst_start = mrope_pos_ptr
+                dst_end = mrope_pos_ptr + prompt_part_len
+                src_start = num_computed_tokens
+                src_end = num_computed_tokens + prompt_part_len
+
+                self.mrope_positions_cpu[:, dst_start:dst_end] = \
+                    req.mrope_positions[:,src_start:src_end]
+
+                mrope_pos_ptr += prompt_part_len
+
+            if completion_part_len > 0:
+                # compute completion's mrope_positions on-the-fly
+                dst_start = mrope_pos_ptr
+                dst_end = mrope_pos_ptr + completion_part_len
+
+                self.mrope_positions_cpu[:, dst_start:dst_end] = \
+                    MRotaryEmbedding.get_next_input_positions_tensor(
+                        req.mrope_position_delta,
+                        context_len=num_computed_tokens +
+                        prompt_part_len,
+                        seq_len=num_computed_tokens +
+                        prompt_part_len +
+                        completion_part_len,
+                    )
+
+                mrope_pos_ptr += completion_part_len
+
 
     def get_model(self) -> nn.Module:
         assert self.model is not None

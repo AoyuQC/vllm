@@ -18,7 +18,7 @@ llm = LLM(
     max_num_batched_tokens=128,
     mm_processor_kwargs={
         "min_pixels": 28 * 28,
-        "max_pixels": 512 * 28 * 28,
+        "max_pixels": 64 * 28 * 28,
     },
     disable_mm_preprocessor_cache=False,
 )
@@ -46,7 +46,7 @@ stop_token_ids = None
 
 # We set temperature to 0.2 so that outputs can be different
 # even when all prompts are identical when running batch inference.
-sampling_params = SamplingParams(temperature=0.2,
+sampling_params = SamplingParams(temperature=0,
                                  max_tokens=64,
                                  stop_token_ids=stop_token_ids)
 

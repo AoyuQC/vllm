@@ -6,33 +6,6 @@ from vllm import LLM, SamplingParams
 
 os.environ["VLLM_USE_V1"] = "1"
 
-# # Multi modal data
-# # Refer to the HuggingFace repo for the correct format to use
-# prompt = "USER: <image>\nWhat is the content of this image?\nASSISTANT:"
-
-# # Load the image using PIL.Image
-# image = PIL.Image.open("demo.jpg")
-
-# # Single prompt inference
-# llm = LLM(model="Qwen/Qwen2.5-VL-3B-Instruct")
-
-# outputs = llm.generate(
-#     [
-#         {
-#             "prompt": "USER: <image>\nWhat is the content of this image?\nASSISTANT:",
-#             "multi_modal_data": {"image": image},
-#         },
-#         {
-#             "prompt": "USER: <image>\nWhat's the color of this image?\nASSISTANT:",
-#             "multi_modal_data": {"image": image},
-#         }
-#     ]
-# )
-
-# for o in outputs:
-#     generated_text = o.outputs[0].text
-#     print(generated_text)
-
 # Sample prompts.
 prompts = [
     "Hello, my name is",
