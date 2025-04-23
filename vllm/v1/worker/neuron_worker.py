@@ -175,6 +175,8 @@ def init_worker_distributed_environment(
     """Initialize the distributed environment."""
     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
 
+    print(f"Initializing multiprocess with rank {rank} and tensor parallel size {parallel_config.tensor_parallel_size}")
+
     initialize_multiprocess(rank, parallel_config.tensor_parallel_size)
 
     init_distributed_environment(parallel_config.world_size,

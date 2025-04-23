@@ -795,7 +795,6 @@ class NeuronModelRunner:
                 seq.tolist()
                 for seq in sampled_token_ids[valid_mask].split(gen_lens)
             ]
-        print(f"!!!!!!!!!!!valid_sampled_token_ids: {valid_sampled_token_ids}")
         model_runner_output = ModelRunnerOutput(
             req_ids=self.input_batch.req_ids,
             req_id_to_index=self.input_batch.req_id_to_index,

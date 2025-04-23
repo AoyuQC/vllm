@@ -8,10 +8,10 @@ os.environ["VLLM_USE_V1"] = "1"
 
 # Sample prompts.
 prompts = [
-    "Hello, my name is",
-    # "The president of the United States is",
-    # "The capital of France is",
-    # "The future of AI is",
+    # "Hello, my name is",
+    "The president of the United States is",
+    "The capital of France is",
+    "The future of AI is",
 ]
 # Create a sampling params object.
 sampling_params = SamplingParams(temperature=0)
@@ -25,6 +25,7 @@ llm = LLM(
     # The neuron backend for V1 is currently experimental.
     # Here, we limit concurrency to 8, while enabling both chunked-prefill
     # and prefix-caching.
+    tensor_parallel_size=2,
     max_num_seqs=8,
     max_num_batched_tokens=128,
 )

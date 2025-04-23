@@ -18,6 +18,7 @@ from vllm.config import VllmConfig
 from vllm.logger import init_logger
 from vllm.triton_utils.importing import HAS_TRITON
 from vllm.utils import _check_multiproc_method, get_mp_context, run_method
+from vllm.platforms import current_platform
 
 if HAS_TRITON:
     from vllm.triton_utils import maybe_set_triton_cache_manager
@@ -318,3 +319,7 @@ def set_multiprocessing_worker_envs(parallel_config):
     # workaround for https://github.com/vllm-project/vllm/issues/6103
     if HAS_TRITON and parallel_config.world_size > 1:
         maybe_set_triton_cache_manager()
+
+    if current_platform.is_neuron():
+        os.environ["NEURONCORE_NUM_DEVICES"] = str(parallel_config.tensor_parallel_size)
+        os.environ['NEURON_PJRT_PROCESSES_NUM_DEVICES'] = ','.join(['1' for _ in range(parallel_config.tensor_parallel_size)])
