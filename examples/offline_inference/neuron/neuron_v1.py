@@ -18,14 +18,14 @@ sampling_params = SamplingParams(temperature=0)
 
 # Create an LLM.
 llm = LLM(
-    model="Qwen/Qwen2.5-0.5B-Instruct",
+    # model="Qwen/Qwen2.5-0.5B-Instruct",
     # model="Qwen/Qwen2.5-1.5B-Instruct",
-    # model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     # model="TinyLlama/TinyLlama_v1.1_chinese",
     # The neuron backend for V1 is currently experimental.
     # Here, we limit concurrency to 8, while enabling both chunked-prefill
     # and prefix-caching.
-    tensor_parallel_size=2,
+    tensor_parallel_size=4,
     max_num_seqs=8,
     max_num_batched_tokens=128,
 )

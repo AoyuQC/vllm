@@ -21,6 +21,7 @@ llm = LLM(
         "max_pixels": 64 * 28 * 28,
     },
     disable_mm_preprocessor_cache=False,
+    tensor_parallel_size=2,
 )
 
 placeholder = "<|image_pad|>"

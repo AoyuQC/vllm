@@ -25,6 +25,7 @@ class NeuronPlatform(Platform):
     dispatch_key: str = "XLA"
     supported_quantization: list[str] = ["neuron_quant"]
     device_control_env_var: str = "NEURON_RT_VISIBLE_CORES"
+    simple_compile_backend: str = "openxla"
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:

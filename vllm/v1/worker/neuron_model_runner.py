@@ -693,6 +693,7 @@ class NeuronModelRunner:
             if encoder_outputs:
                 encoder_outputs = [out.to(self.device) for out in encoder_outputs]
                 # Get embeddings with input_ids as is (without unsqueeze)
+                # print(f"self language model: {self.model.language_model}")
                 inputs_embeds = self.model.get_input_embeddings(
                     input_ids, encoder_outputs)
             else:
