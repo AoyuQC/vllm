@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.distributed
 import torch.nn as nn
+import torch_xla
+import gc
 
 from vllm.attention import AttentionType
 from vllm.attention.layer import Attention
@@ -737,10 +739,19 @@ class NeuronModelRunner:
         if hasattr(language_model, "lm_head"):
             # Compute logits on CPU
             lm_head_original_device = language_model.lm_head.weight.device
-            language_model.lm_head = language_model.lm_head.cpu()
+            original_lm_head = language_model.lm_head
+            language_model.lm_head = language_model.lm_head.to('cpu')
+            del original_lm_head
+            torch_xla.core.xla_model.mark_step()
+            gc.collect()
         logits = self.model.compute_logits(hidden_states, None)
+        # print(f"before to device: {logits.device}, original device: {lm_head_original_device}")
         if lm_head_original_device is not None:
+            original_lm_head = language_model.lm_head
             language_model.lm_head = language_model.lm_head.to(lm_head_original_device)
+            del original_lm_head
+            gc.collect()
+        # print(f"after to device: {logits.device}, original device: {lm_head_original_device}")
 
         # Sample the next token and get logprobs if needed.
         sampling_metadata = self.input_batch.sampling_metadata
