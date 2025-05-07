@@ -7,25 +7,49 @@ from vllm import LLM, SamplingParams
 os.environ["VLLM_USE_V1"] = "1"
 
 # Sample prompts.
-prompts = [
-    # "Hello, my name is",
-    "The president of the United States is",
-    "The capital of France is",
-    "The future of AI is",
+# prompts = [
+#     # "Hello, my name is",
+#     "The president of the United States is",
+#     "The capital of France is",
+#     "The future of AI is",
+# ]
+messages = [
+    {"messages": [
+        {"role": "system", "content": "You are a helpful AI assistant."},
+        {"role": "user", "content": "Who is the current president of the United States?"}
+    ]},
+    {"messages": [
+        {"role": "system", "content": "You are a knowledgeable AI that provides factual information."},
+        {"role": "user", "content": "What is the capital of France?"}
+    ]},
+    {"messages": [
+        {"role": "system", "content": "You are a visionary AI discussing future technology trends."},
+        {"role": "user", "content": "What do you think the future of AI will be? Answer short and concise."}
+    ]},
 ]
+
+from transformers import AutoTokenizer
+
+model = "meta-llama/Llama-3.3-70B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(model)
+
+prompts = [tokenizer.apply_chat_template(message["messages"], tokenize=False) for message in messages]
+
 # Create a sampling params object.
-sampling_params = SamplingParams(temperature=0)
+sampling_params = SamplingParams(temperature=0, max_tokens=128)
 
 # Create an LLM.
 llm = LLM(
     # model="Qwen/Qwen2.5-0.5B-Instruct",
     # model="Qwen/Qwen2.5-1.5B-Instruct",
-    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    # model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    model=model,
     # model="TinyLlama/TinyLlama_v1.1_chinese",
     # The neuron backend for V1 is currently experimental.
     # Here, we limit concurrency to 8, while enabling both chunked-prefill
     # and prefix-caching.
-    tensor_parallel_size=4,
+    tensor_parallel_size=32,
     max_num_seqs=8,
     max_num_batched_tokens=128,
 )
