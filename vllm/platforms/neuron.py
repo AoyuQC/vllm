@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-<<<<<<< HEAD
 import enum
 import os
 from functools import lru_cache
-=======
-import os
->>>>>>> f39116508 (adding support for neuron tp in v1)
 from typing import TYPE_CHECKING, Optional
 
 import torch
@@ -73,6 +69,25 @@ class NeuronPlatform(Platform):
                 is None), "LoRA is not supported for Neuron backend."
 
     @classmethod
+    def check_and_update_config_v0(cls, vllm_config: VllmConfig) -> None:
+        parallel_config = vllm_config.parallel_config
+        if parallel_config.worker_cls == "auto":
+            parallel_config.worker_cls = \
+                "vllm.worker.neuron_worker.NeuronWorker"
+
+        if parallel_config.world_size > 1:
+            parallel_config.distributed_executor_backend = "uni"
+
+        assert (vllm_config.lora_config
+                is None), "LoRA is not supported for Neuron backend."
+
+        cache_config = vllm_config.cache_config
+        if cache_config:
+            # neuron needs block_size = max_model_len
+            vllm_config.cache_config.block_size = \
+                vllm_config.model_config.max_model_len  # type: ignore
+
+    @classmethod
     def check_and_update_config_v1(cls, vllm_config: VllmConfig) -> None:
         from vllm.config import CompilationLevel
 
@@ -83,11 +98,6 @@ class NeuronPlatform(Platform):
 
         cache_config = vllm_config.cache_config
         if cache_config:
-<<<<<<< HEAD
-            # neuron needs block_size = max_model_len
-            vllm_config.cache_config.block_size = \
-                vllm_config.model_config.max_model_len  # type: ignore
-=======
             # neuron V1 only: the preferred block_size is 32
             vllm_config.cache_config.block_size = 32
 
@@ -107,23 +117,6 @@ class NeuronPlatform(Platform):
         # Disable functionalization on xla, due to https://github.com/pytorch/xla/issues/8640
         os.environ["XLA_DISABLE_FUNCTIONALIZATION"] = "0"
         os.environ["NEURON_CC_FLAGS"] = " -O1 --model-type=transformer --retry_failed_compilation "
-
-    @classmethod
-    def check_and_update_config_v0(cls, vllm_config: VllmConfig) -> None:
-        parallel_config = vllm_config.parallel_config
-        if parallel_config.worker_cls == "auto":
-            parallel_config.worker_cls = (
-                "vllm.worker.neuron_worker.NeuronWorker")
-
-        if parallel_config.world_size > 1:
-            parallel_config.distributed_executor_backend = "uni"
-
-        cache_config = vllm_config.cache_config
-        if cache_config:
-            # neuron V0 only: needs block_size = max_model_len
-            vllm_config.cache_config.block_size = (
-                vllm_config.model_config.max_model_len)
->>>>>>> f39116508 (adding support for neuron tp in v1)
 
     @classmethod
     def is_pin_memory_available(cls) -> bool:
