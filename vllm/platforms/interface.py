@@ -49,6 +49,7 @@ class _Backend(enum.Enum):
     HPU_ATTN = enum.auto()
     PALLAS = enum.auto()
     PALLAS_VLLM_V1 = enum.auto()
+    NEURON = enum.auto()
     IPEX = enum.auto()
     BLOCK_SPARSE_FLASH_ATTN = enum.auto()
     DUAL_CHUNK_FLASH_ATTN = enum.auto()
