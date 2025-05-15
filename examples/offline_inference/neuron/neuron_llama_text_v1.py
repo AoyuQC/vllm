@@ -30,14 +30,24 @@ messages = [
 
 from transformers import AutoTokenizer
 
-model = "meta-llama/Llama-3.3-70B-Instruct"
+# model = "meta-llama/Llama-3.3-70B-Instruct"
+model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+tp = 1
 
 tokenizer = AutoTokenizer.from_pretrained(model)
 
 prompts = [tokenizer.apply_chat_template(message["messages"], tokenize=False) for message in messages]
 
+prompts = [
+    # "Hello, my name is",
+    "The president of the United States is",
+    "The capital of France is",
+    "The future of AI is",
+]
+
 # Create a sampling params object.
-sampling_params = SamplingParams(temperature=0, max_tokens=128)
+# sampling_params = SamplingParams(temperature=0, max_tokens=128)
+sampling_params = SamplingParams(temperature=0)
 
 # Create an LLM.
 llm = LLM(
@@ -49,7 +59,7 @@ llm = LLM(
     # The neuron backend for V1 is currently experimental.
     # Here, we limit concurrency to 8, while enabling both chunked-prefill
     # and prefix-caching.
-    tensor_parallel_size=32,
+    tensor_parallel_size=tp,
     max_num_seqs=8,
     max_num_batched_tokens=128,
 )

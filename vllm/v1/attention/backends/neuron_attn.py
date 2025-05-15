@@ -15,19 +15,17 @@ def neuron_paged_attn(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    key_cache: torch.Tensor,
-    value_cache: torch.Tensor,
+    kv_cache: torch.Tensor,
     block_table: torch.Tensor,
     attn_mask: torch.Tensor,
 ) -> torch.Tensor:
     from vllm.attention.ops.nki_flash_attn import flash_attn_varlen_nkifunc
-    _, n_kv_head, _, head_size = key_cache.shape
+    _, _, n_kv_head, _, head_size = kv_cache.shape
     output_nki = flash_attn_varlen_nkifunc(
         query=query,
         key=key,
         value=value,
-        key_cache=key_cache,
-        value_cache=value_cache,
+        kv_cache=kv_cache,
         block_table=block_table,
         attn_mask=attn_mask,
         n_kv_head=n_kv_head,
@@ -42,8 +40,7 @@ def _(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    key_cache: torch.Tensor,
-    value_cache: torch.Tensor,
+    kv_cache: torch.Tensor,
     block_table: torch.Tensor,
     attn_mask: torch.Tensor,
 ) -> torch.Tensor:
@@ -153,11 +150,9 @@ class NeuronAttentionBackendImpl(AttentionImpl[NeuronAttentionMetadata]):
         value = value.view(num_tokens, self.num_kv_heads, self.head_size)
 
         if kv_cache.numel() > 0:
-            k_cache = kv_cache[0]
-            v_cache = kv_cache[1]
             torch.ops.xla.dynamo_set_buffer_donor_(kv_cache, True)
             slot_mapping = attn_metadata.slot_mapping
-            reshape_and_cache(key, value, k_cache, v_cache, slot_mapping)
+            reshape_and_cache(key, value, kv_cache, slot_mapping)
         else:
             # profiling run
             return query
@@ -171,8 +166,7 @@ class NeuronAttentionBackendImpl(AttentionImpl[NeuronAttentionMetadata]):
             query,
             key,
             value,
-            k_cache,
-            v_cache,
+            kv_cache,
             attn_metadata.active_block_table,
             attn_metadata.attn_mask,
         )

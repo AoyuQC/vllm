@@ -12,9 +12,10 @@ from vllm.logger import init_logger
 from .interface import Platform, PlatformEnum, _Backend
 
 if TYPE_CHECKING:
-    from vllm.config import VllmConfig
+    from vllm.config import VllmConfig, ModelConfig
 else:
     VllmConfig = None
+    ModelConfig = None
 
 logger = init_logger(__name__)
 
@@ -132,6 +133,11 @@ class NeuronPlatform(Platform):
 
     @classmethod
     def use_all_gather(cls) -> bool:
+        return True
+
+    @classmethod
+    def supports_v1(cls, model_config: ModelConfig) -> bool:
+        # V1 support on Neuron is experimental
         return True
 
     @classmethod

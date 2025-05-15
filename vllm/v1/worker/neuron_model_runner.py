@@ -24,8 +24,8 @@ from vllm.sequence import IntermediateTensors
 from vllm.utils import STR_DTYPE_TO_TORCH_DTYPE, LayerBlockType, cdiv
 from vllm.v1.attention.backends.neuron_attn import (NeuronAttentionBackend,
                                                     NeuronAttentionMetadata)
-from vllm.v1.kv_cache_interface import (FullAttentionSpec, KVCacheConfig,
-                                        KVCacheSpec)
+from vllm.v1.kv_cache_interface import (AttentionSpec, FullAttentionSpec,
+                                        KVCacheConfig, KVCacheSpec)
 from vllm.v1.outputs import LogprobsTensors, ModelRunnerOutput
 from vllm.v1.utils import bind_kv_cache
 from vllm.v1.worker.gpu_input_batch import CachedRequestState, InputBatch
@@ -142,6 +142,7 @@ class NeuronModelRunner:
             max_num_reqs=self.max_num_reqs,
             max_model_len=self.max_model_len,
             max_num_blocks_per_req=self.max_num_blocks_per_req,
+            max_num_batched_tokens=self.max_num_tokens,
             device="cpu",
             pin_memory=self.pin_memory,
             vocab_size=model_config.get_vocab_size(),
@@ -934,16 +935,27 @@ class NeuronModelRunner:
 
         kv_caches: dict[str, torch.Tensor] = {}
 
+        # with torch.inference_mode():
+        #     kv_cache_shape = NeuronAttentionBackend.get_kv_cache_shape(
+        #         self.num_blocks + 1, self.block_size, self.num_kv_heads,
+        #         self.head_size)
+        #     for layer_name, layer_spec in kv_cache_config.kv_cache_spec.items(
+        #     ):
+        #         cache = torch.zeros(kv_cache_shape,
+        #                             dtype=self.kv_cache_dtype,
+        #                             device='cpu')
+        #         kv_caches[layer_name] = cache.to(self.device)
+
         with torch.inference_mode():
             kv_cache_shape = NeuronAttentionBackend.get_kv_cache_shape(
                 self.num_blocks + 1, self.block_size, self.num_kv_heads,
                 self.head_size)
-            for layer_name, layer_spec in kv_cache_config.kv_cache_spec.items(
-            ):
-                cache = torch.zeros(kv_cache_shape,
-                                    dtype=self.kv_cache_dtype,
-                                    device='cpu')
-                kv_caches[layer_name] = cache.to(self.device)
+            for kv_cache_group in kv_cache_config.kv_cache_groups:
+                for layer_name in kv_cache_group.layer_names:
+                    cache = torch.zeros(kv_cache_shape,
+                                        dtype=self.kv_cache_dtype,
+                                        device='cpu')
+                    kv_caches[layer_name] = cache.to(self.device)
 
         bind_kv_cache(
             kv_caches,
