@@ -38,16 +38,15 @@ tokenizer = AutoTokenizer.from_pretrained(model)
 
 prompts = [tokenizer.apply_chat_template(message["messages"], tokenize=False) for message in messages]
 
-prompts = [
-    # "Hello, my name is",
-    "The president of the United States is",
-    "The capital of France is",
-    "The future of AI is",
-]
+# prompts = [
+#     # "Hello, my name is",
+#     "The president of the United States is",
+#     "The capital of France is",
+#     "The future of AI is",
+# ]
 
 # Create a sampling params object.
-# sampling_params = SamplingParams(temperature=0, max_tokens=128)
-sampling_params = SamplingParams(temperature=0)
+sampling_params = SamplingParams(temperature=0, max_tokens=128)
 
 # Create an LLM.
 llm = LLM(
