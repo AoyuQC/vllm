@@ -114,6 +114,7 @@ class NeuronPlatform(Platform):
                 vllm_config.scheduler_config.max_num_batched_tokens
                 if vllm_config.scheduler_config else 128
             ]
+            compilation_config.use_inductor = True
 
         # Disable functionalization on xla, due to https://github.com/pytorch/xla/issues/8640
         os.environ["XLA_DISABLE_FUNCTIONALIZATION"] = "0"
@@ -133,6 +134,10 @@ class NeuronPlatform(Platform):
 
     @classmethod
     def use_all_gather(cls) -> bool:
+        return True
+    
+    @classmethod
+    def use_custom_allreduce(cls) -> bool:
         return True
 
     @classmethod
